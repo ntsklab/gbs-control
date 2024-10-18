@@ -30,7 +30,7 @@
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 
-SSD1306Wire display(0x3c, 2, 12); //inits I2C address & pins for OLED
+SSD1306Wire display(0x3c, 4, 5, GEOMETRY_128_64, I2C_ONE, 700000); //inits I2C address & pins for OLED
 const int pin_clk = 14;            //D5 = GPIO14 (input of one direction for encoder)
 const int pin_data = 13;           //D7 = GPIO13	(input of one direction for encoder)
 const int pin_switch = 0;          //D3 = GPIO0 pulled HIGH, else boot fail (middle push button for encoder)
@@ -143,12 +143,13 @@ PersWiFiManager persWM(server, dnsServer);
 #define DEBUG_IN_PIN 16 // marked "D12/MISO/D6" (Wemos D1) or D6 (Lolin NodeMCU)
 // SCL = D1 (Lolin), D15 (Wemos D1) // ESP8266 Arduino default map: SCL
 // SDA = D2 (Lolin), D14 (Wemos D1) // ESP8266 Arduino default map: SDA
+
 #define LEDON                     \
-    pinMode(LED_BUILTIN, OUTPUT); \
-    digitalWrite(LED_BUILTIN, LOW)
+    pinMode(12, OUTPUT); \
+    digitalWrite(12, LOW)
 #define LEDOFF                       \
-    digitalWrite(LED_BUILTIN, HIGH); \
-    pinMode(LED_BUILTIN, INPUT)
+    digitalWrite(12, HIGH); \
+    pinMode(12, INPUT)
 
 // fast ESP8266 digitalRead (21 cycles vs 77), *should* work with all possible input pins
 // but only "D7" and "D6" have been tested so far
@@ -5816,8 +5817,8 @@ void startWire()
     pinMode(SDA, OUTPUT_OPEN_DRAIN);
     // no issues even at 700k, requires ESP8266 160Mhz CPU clock, else (80Mhz) uses 400k in library
     // no problem with Si5351 at 700k either
-    Wire.setClock(400000);
-    //Wire.setClock(700000);
+    //Wire.setClock(400000);
+    Wire.setClock(700000);
 }
 
 void fastSogAdjust()
@@ -7191,6 +7192,9 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
 
 void setup()
 {
+    pinMode(4, OUTPUT_OPEN_DRAIN);
+    pinMode(5, OUTPUT_OPEN_DRAIN);
+
     display.init();                 //inits OLED on I2C bus
     display.flipScreenVertically(); //orientation fix for OLED
 
@@ -7298,7 +7302,7 @@ void setup()
     userCommand = '@';
 
     pinMode(DEBUG_IN_PIN, INPUT);
-    pinMode(LED_BUILTIN, OUTPUT);
+    pinMode(12, OUTPUT);
     LEDON; // enable the LED, lets users know the board is starting up
 
     //Serial.setDebugOutput(true); // if you want simple wifi debug info
