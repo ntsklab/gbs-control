@@ -2,6 +2,8 @@
 - Add PCB gerber
 - Modified for ESP-WROOM-02(D)
 
+[https://in-deep.blue/archives/1246](https://in-deep.blue/archives/1246)
+
 # gbs-control
 
 Documentation: https://ramapcsx2.github.io/gbs-control/
