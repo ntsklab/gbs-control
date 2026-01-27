@@ -5,7 +5,7 @@
    modified for inclusion in gbs-control
    see /3rdparty/PersWiFiManager/ for original code and license
 */
-#if defined(ESP8266)
+#if defined(ESP8266) || defined(ESP32)
 #include "PersWiFiManager.h"
 
 // #define WIFI_HTM_PROGMEM
@@ -27,7 +27,11 @@ bool PersWiFiManager::attemptConnection(const String &ssid, const String &pass)
 {
     //attempt to connect to wifi
     WiFi.mode(WIFI_STA);
+    #if defined(ESP8266)
     WiFi.hostname(device_hostname_partial); // _full // before WiFi.begin();
+    #elif defined(ESP32)
+    WiFi.setHostname(device_hostname_partial);
+    #endif
     if (ssid.length()) {
         if (pass.length())
             WiFi.begin(ssid.c_str(), pass.c_str());
