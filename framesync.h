@@ -1,6 +1,15 @@
 #ifndef FRAMESYNC_H_
 #define FRAMESYNC_H_
 
+// ISR attribute compatibility
+#if defined(ESP8266)
+#define ISR_ATTR ICACHE_RAM_ATTR
+#elif defined(ESP32)
+#define ISR_ATTR IRAM_ATTR
+#else
+#define ISR_ATTR
+#endif
+
 // fast digitalRead()
 #if defined(ESP8266)
 #define digitalRead(x) ((GPIO_REG_READ(GPIO_IN_ADDRESS) >> x) & 1)
@@ -47,7 +56,7 @@ namespace MeasurePeriod {
         attachInterrupt(DEBUG_IN_PIN, _risingEdgeISR_prepare, RISING);
     }
 
-    void ICACHE_RAM_ATTR _risingEdgeISR_prepare()
+    void ISR_ATTR _risingEdgeISR_prepare()
     {
         noInterrupts();
         //startTime = ESP.getCycleCount();
@@ -59,7 +68,7 @@ namespace MeasurePeriod {
         interrupts();
     }
 
-    void ICACHE_RAM_ATTR _risingEdgeISR_measure()
+    void ISR_ATTR _risingEdgeISR_measure()
     {
         noInterrupts();
         //stopTime = ESP.getCycleCount();

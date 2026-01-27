@@ -99,6 +99,15 @@ volatile int oled_sub_pointer = 0;
 #define SET_WIFI_HOSTNAME(x) WiFi.setHostname(x)
 #endif
 
+// ISR attribute compatibility
+#if defined(ESP8266)
+#define ISR_ATTR ICACHE_RAM_ATTR
+#elif defined(ESP32)
+#define ISR_ATTR IRAM_ATTR
+#else
+#define ISR_ATTR
+#endif
+
 // WebSockets library by Markus Sattler
 // https://github.com/Links2004/arduinoWebSockets
 // included in src folder to allow header modifications within limitations of the Arduino framework
@@ -7148,7 +7157,7 @@ void loadDefaultUserOptions()
 //}
 
 #if !USE_NEW_OLED_MENU
-void ICACHE_RAM_ATTR isrRotaryEncoder()
+void ISR_ATTR isrRotaryEncoder()
 {
     static unsigned long lastInterruptTime = 0;
     unsigned long interruptTime = millis();
@@ -7175,7 +7184,7 @@ void ICACHE_RAM_ATTR isrRotaryEncoder()
 #endif
 
 #if USE_NEW_OLED_MENU
-void ICACHE_RAM_ATTR isrRotaryEncoderRotateForNewMenu()
+void ISR_ATTR isrRotaryEncoderRotateForNewMenu()
 {
     unsigned long interruptTime = millis();
     static unsigned long lastInterruptTime = 0;
@@ -7200,7 +7209,7 @@ void ICACHE_RAM_ATTR isrRotaryEncoderRotateForNewMenu()
         lastInterruptTime = interruptTime;
     }
 }
-void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
+void ISR_ATTR isrRotaryEncoderPushForNewMenu()
 {
     static unsigned long lastInterruptTime = 0;
     unsigned long interruptTime = millis();
