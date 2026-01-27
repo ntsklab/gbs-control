@@ -22,6 +22,7 @@
 #include "osd.h"
 #include "SSD1306Wire.h"
 #include "images.h"
+#include "pin_config.h"  // Hardware pin configuration
 
 #define HAVE_BUTTONS 0
 #define USE_NEW_OLED_MENU 1
@@ -30,10 +31,12 @@
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 
-SSD1306Wire display(0x3c, 4, 5, GEOMETRY_128_64, I2C_ONE, 700000); //inits I2C address & pins for OLED
-const int pin_clk = 14;            //D5 = GPIO14 (input of one direction for encoder)
-const int pin_data = 13;           //D7 = GPIO13	(input of one direction for encoder)
-const int pin_switch = 0;          //D3 = GPIO0 pulled HIGH, else boot fail (middle push button for encoder)
+SSD1306Wire display(OLED_I2C_ADDRESS, OLED_SDA, OLED_SCL, OLED_GEOMETRY, OLED_I2C_BUS, OLED_I2C_FREQ);
+
+// Rotary encoder pins
+const int pin_clk = PIN_ENCODER_CLK;
+const int pin_data = PIN_ENCODER_DATA;
+const int pin_switch = PIN_ENCODER_SWITCH;
 
 
 #if USE_NEW_OLED_MENU
@@ -60,6 +63,7 @@ volatile int oled_main_pointer = 0; // volatile vars change done with ISR
 volatile int oled_pointer_count = 0;
 volatile int oled_sub_pointer = 0;
 #endif
+#if defined(ESP8266)
 #include <ESP8266WiFi.h>
 // ESPAsyncTCP and ESPAsyncWebServer libraries by me-no-dev
 // download (green "Clone or download" button) and extract to Arduino libraries folder
@@ -73,12 +77,39 @@ volatile int oled_sub_pointer = 0;
 #include <WiFiUdp.h>
 #include <ESP8266mDNS.h> // mDNS library for finding gbscontrol.local on the local network
 #include <ArduinoOTA.h>
+#elif defined(ESP32)
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include "FS.h"
+#include <SPIFFS.h>
+#include <DNSServer.h>
+#include <WiFiUdp.h>
+#include <ESPmDNS.h> // mDNS library for finding gbscontrol.local on the local network
+#include <ArduinoOTA.h>
+#endif
 
 // PersWiFiManager library by Ryan Downing
 // https://github.com/r-downing/PersWiFiManager
 // included in project root folder to allow modifications within limitations of the Arduino framework
 // See 3rdparty/PersWiFiManager for unmodified source and license
 #include "PersWiFiManager.h"
+
+// WiFi hostname compatibility macro
+#if defined(ESP8266)
+#define SET_WIFI_HOSTNAME(x) WiFi.hostname(x)
+#elif defined(ESP32)
+#define SET_WIFI_HOSTNAME(x) WiFi.setHostname(x)
+#endif
+
+// ISR attribute compatibility
+#if defined(ESP8266)
+#define ISR_ATTR ICACHE_RAM_ATTR
+#elif defined(ESP32)
+#define ISR_ATTR IRAM_ATTR
+#else
+#define ISR_ATTR
+#endif
 
 // WebSockets library by Markus Sattler
 // https://github.com/Links2004/arduinoWebSockets
@@ -140,20 +171,20 @@ WebSocketsServer webSocket(81);
 //AsyncWebSocket webSocket("/ws");
 PersWiFiManager persWM(server, dnsServer);
 
-#define DEBUG_IN_PIN 16 // marked "D12/MISO/D6" (Wemos D1) or D6 (Lolin NodeMCU)
-// SCL = D1 (Lolin), D15 (Wemos D1) // ESP8266 Arduino default map: SCL
-// SDA = D2 (Lolin), D14 (Wemos D1) // ESP8266 Arduino default map: SDA
-
+// Status LED control macros
 #define LEDON                     \
-    pinMode(12, OUTPUT); \
-    digitalWrite(12, LOW)
+    pinMode(PIN_LED, OUTPUT); \
+    digitalWrite(PIN_LED, LOW)
 #define LEDOFF                       \
-    digitalWrite(12, HIGH); \
-    pinMode(12, INPUT)
+    digitalWrite(PIN_LED, HIGH); \
+    pinMode(PIN_LED, INPUT)
 
 // fast ESP8266 digitalRead (21 cycles vs 77), *should* work with all possible input pins
 // but only "D7" and "D6" have been tested so far
+#if defined(ESP8266)
 #define digitalRead(x) ((GPIO_REG_READ(GPIO_IN_ADDRESS) >> x) & 1)
+#endif
+// Note: ESP32 uses standard digitalRead() which is already optimized
 
 // feed the current measurement, get back the moving average
 uint8_t getMovingAverage(uint8_t item)
@@ -5803,22 +5834,22 @@ void printInfo()
 
 void stopWire()
 {
-    pinMode(SCL, INPUT);
-    pinMode(SDA, INPUT);
+    pinMode(PIN_SCL, INPUT);
+    pinMode(PIN_SDA, INPUT);
     delayMicroseconds(80);
 }
 
 void startWire()
 {
-    Wire.begin(4, 5);
+    Wire.begin(PIN_SDA, PIN_SCL);
     // The i2c wire library sets pullup resistors on by default.
     // Disable these to detect/work with GBS onboard pullups
-    pinMode(SCL, OUTPUT_OPEN_DRAIN);
-    pinMode(SDA, OUTPUT_OPEN_DRAIN);
+    pinMode(PIN_SCL, OUTPUT_OPEN_DRAIN);
+    pinMode(PIN_SDA, OUTPUT_OPEN_DRAIN);
     // no issues even at 700k, requires ESP8266 160Mhz CPU clock, else (80Mhz) uses 400k in library
     // no problem with Si5351 at 700k either
     //Wire.setClock(400000);
-    Wire.setClock(700000);
+    Wire.setClock(I2C_CLOCK_FREQ);
 }
 
 void fastSogAdjust()
@@ -7126,7 +7157,7 @@ void loadDefaultUserOptions()
 //}
 
 #if !USE_NEW_OLED_MENU
-void ICACHE_RAM_ATTR isrRotaryEncoder()
+void ISR_ATTR isrRotaryEncoder()
 {
     static unsigned long lastInterruptTime = 0;
     unsigned long interruptTime = millis();
@@ -7153,7 +7184,7 @@ void ICACHE_RAM_ATTR isrRotaryEncoder()
 #endif
 
 #if USE_NEW_OLED_MENU
-void ICACHE_RAM_ATTR isrRotaryEncoderRotateForNewMenu()
+void ISR_ATTR isrRotaryEncoderRotateForNewMenu()
 {
     unsigned long interruptTime = millis();
     static unsigned long lastInterruptTime = 0;
@@ -7178,7 +7209,7 @@ void ICACHE_RAM_ATTR isrRotaryEncoderRotateForNewMenu()
         lastInterruptTime = interruptTime;
     }
 }
-void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
+void ISR_ATTR isrRotaryEncoderPushForNewMenu()
 {
     static unsigned long lastInterruptTime = 0;
     unsigned long interruptTime = millis();
@@ -7192,8 +7223,8 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
 
 void setup()
 {
-    pinMode(4, OUTPUT_OPEN_DRAIN);
-    pinMode(5, OUTPUT_OPEN_DRAIN);
+    pinMode(PIN_SDA, OUTPUT_OPEN_DRAIN);
+    pinMode(PIN_SCL, OUTPUT_OPEN_DRAIN);
 
     display.init();                 //inits OLED on I2C bus
     display.flipScreenVertically(); //orientation fix for OLED
@@ -7220,7 +7251,7 @@ void setup()
 
     // millis() at this point: typically 65ms
     // start web services as early in boot as possible
-    WiFi.hostname(device_hostname_partial); // was _full
+    SET_WIFI_HOSTNAME(device_hostname_partial); // was _full
 
     startWire();
     // run some dummy commands to init I2C to GBS and cached segments
@@ -7231,14 +7262,21 @@ void setup()
 
     if (rto->webServerEnabled) {
         rto->allowUpdatesOTA = false;       // need to initialize for handleWiFi()
+        #if defined(ESP8266)
         WiFi.setSleepMode(WIFI_NONE_SLEEP); // low latency responses, less chance for missing packets
+        #elif defined(ESP32)
+        WiFi.setSleep(false); // ESP32 equivalent
+        #endif
         WiFi.setOutputPower(16.0f);         // float: min 0.0f, max 20.5f
         startWebserver();
         rto->webServerStarted = true;
     } else {
         //WiFi.disconnect(); // deletes credentials
         WiFi.mode(WIFI_OFF);
+        #if defined(ESP8266)
         WiFi.forceSleepBegin();
+        #endif
+        // Note: ESP32 doesn't need forceSleepBegin(), WiFi.mode(WIFI_OFF) is sufficient
     }
 #ifdef HAVE_PINGER_LIBRARY
     pingLastTime = millis();
@@ -7301,8 +7339,8 @@ void setup()
     serialCommand = '@'; // ASCII @ = 0
     userCommand = '@';
 
-    pinMode(DEBUG_IN_PIN, INPUT);
-    pinMode(12, OUTPUT);
+    pinMode(PIN_DEBUG_IN, INPUT);
+    pinMode(PIN_LED, OUTPUT);
     LEDON; // enable the LED, lets users know the board is starting up
 
     //Serial.setDebugOutput(true); // if you want simple wifi debug info
@@ -7324,7 +7362,11 @@ void setup()
     GBS::PLLAD_PDZ::write(0); // AD PLL off
 
     // file system (web page, custom presets, ect)
+    #if defined(ESP8266)
     if (!SPIFFS.begin()) {
+    #elif defined(ESP32)
+    if (!SPIFFS.begin(true)) { // format on mount fail
+    #endif
         SerialM.println(F("SPIFFS mount failed! ((1M SPIFFS) selected?)"));
     } else {
         // load user preferences file
@@ -8952,7 +8994,11 @@ void handleType2Command(char argument)
             saveUserPrefs();
             Serial.println(F("options set to defaults, restarting"));
             delay(60);
+            #if defined(ESP8266)
             ESP.reset(); // don't use restart(), messes up websocket reconnects
+            #elif defined(ESP32)
+            ESP.restart(); // ESP32 doesn't have reset(), use restart()
+            #endif
             //
             break;
         case '2':
@@ -9012,10 +9058,15 @@ void handleType2Command(char argument)
             webSocket.close();
             Serial.println(F("restart"));
             delay(60);
+            #if defined(ESP8266)
             ESP.reset(); // don't use restart(), messes up websocket reconnects
+            #elif defined(ESP32)
+            ESP.restart(); // ESP32 doesn't have reset(), use restart()
+            #endif
             break;
         case 'e': // print files on spiffs
         {
+            #if defined(ESP8266)
             Dir dir = SPIFFS.openDir("/");
             while (dir.next()) {
                 SerialM.print(dir.fileName());
@@ -9023,6 +9074,17 @@ void handleType2Command(char argument)
                 SerialM.println(dir.fileSize());
                 delay(1); // wifi stack
             }
+            #elif defined(ESP32)
+            File root = SPIFFS.open("/");
+            File file = root.openNextFile();
+            while (file) {
+                SerialM.print(file.name());
+                SerialM.print(" ");
+                SerialM.println(file.size());
+                file = root.openNextFile();
+                delay(1); // wifi stack
+            }
+            #endif
             ////
             File f = SPIFFS.open("/preferencesv2.txt", "r");
             if (!f) {
@@ -9281,9 +9343,13 @@ void handleType2Command(char argument)
             // restart to attempt wifi station mode connect
             delay(30);
             WiFi.mode(WIFI_STA);
-            WiFi.hostname(device_hostname_partial); // _full
+            SET_WIFI_HOSTNAME(device_hostname_partial); // _full
             delay(30);
+            #if defined(ESP8266)
             ESP.reset();
+            #elif defined(ESP32)
+            ESP.restart();
+            #endif
             break;
         case 'v': {
             uopt->wantFullHeight = !uopt->wantFullHeight;
@@ -9818,6 +9884,7 @@ void startWebserver()
 
     server.on("/spiffs/dir", HTTP_GET, [](AsyncWebServerRequest *request) {
         if (ESP.getFreeHeap() > 10000) {
+            #if defined(ESP8266)
             Dir dir = SPIFFS.openDir("/");
             String output = "[";
 
@@ -9827,6 +9894,18 @@ void startWebserver()
                 output += "\",";
                 delay(1); // wifi stack
             }
+            #elif defined(ESP32)
+            File root = SPIFFS.open("/");
+            String output = "[";
+            File file = root.openNextFile();
+            while (file) {
+                output += "\"";
+                output += String(file.name());
+                output += "\",";
+                file = root.openNextFile();
+                delay(1); // wifi stack
+            }
+            #endif
 
             output += "]";
 
@@ -10678,7 +10757,11 @@ void settingsMenuOLED()
             }
             webSocket.close();
             delay(60);
+            #if defined(ESP8266)
             ESP.reset();
+            #elif defined(ESP32)
+            ESP.restart();
+            #endif
             oled_selectOption = 0;
             oled_subsetFrame = 0;
         }
@@ -10695,7 +10778,11 @@ void settingsMenuOLED()
             loadDefaultUserOptions();
             saveUserPrefs();
             delay(60);
+            #if defined(ESP8266)
             ESP.reset();
+            #elif defined(ESP32)
+            ESP.restart();
+            #endif
             oled_selectOption = 1;
             oled_subsetFrame = 1;
         }
