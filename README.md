@@ -1,7 +1,7 @@
 # Modified gbs-control
 - Add PCB gerber
 - Modified for ESP-WROOM-02(D)
-- **NEW: ESP32-S3 support added**
+- **NEW: ESP32-S3 and ESP32-C6 support added**
 
 [https://in-deep.blue/archives/1246](https://in-deep.blue/archives/1246)
 
@@ -39,7 +39,7 @@ https://circuit-board.de/forum/index.php/Thread/15601-GBS-8220-Custom-Firmware-i
 
 ### ESP8266 (Original)
 - **Board**: ESP-WROOM-02(D) / D1 Mini
-- **CPU**: Tensilica L106 @ 160MHz
+- **CPU**: Tensilica L106 @ 160MHz (single-core)
 - **RAM**: 80KB
 - **Flash**: 4MB
 - **Features**: WiFi 802.11 b/g/n
@@ -50,6 +50,13 @@ https://circuit-board.de/forum/index.php/Thread/15601-GBS-8220-Custom-Firmware-i
 - **RAM**: 512KB SRAM + optional PSRAM
 - **Flash**: 4MB+
 - **Features**: WiFi 802.11 b/g/n, Bluetooth 5
+
+### ESP32-C6 (New)
+- **Board**: ESP32-C6-DevKitC-1 or compatible
+- **CPU**: Single-core RISC-V @ 160MHz
+- **RAM**: 512KB SRAM
+- **Flash**: 4MB+
+- **Features**: WiFi 6 (802.11ax), Bluetooth 5.3, Zigbee/Thread
 
 ## Building the Firmware
 
@@ -65,6 +72,11 @@ pio run -e d1_mini
 pio run -e esp32s3
 ```
 
+### Build for ESP32-C6
+```bash
+pio run -e esp32c6
+```
+
 ### Upload Firmware
 ```bash
 # For ESP8266
@@ -72,6 +84,9 @@ pio run -e d1_mini -t upload
 
 # For ESP32-S3
 pio run -e esp32s3 -t upload
+
+# For ESP32-C6
+pio run -e esp32c6 -t upload
 ```
 
 ## Pin Configuration
@@ -94,21 +109,32 @@ pio run -e esp32s3 -t upload
 - **Encoder DATA**: GPIO13
 - **Encoder SWITCH**: GPIO0
 
-Note: Pin mappings are compatible between ESP8266 and ESP32-S3 for this application.
+### ESP32-C6
+- **I2C SDA**: GPIO4
+- **I2C SCL**: GPIO5
+- **OLED SDA**: GPIO4
+- **OLED SCL**: GPIO5
+- **Encoder CLK**: GPIO14
+- **Encoder DATA**: GPIO13
+- **Encoder SWITCH**: GPIO0
 
-## ESP32-S3 Migration Notes
+Note: Pin mappings are compatible between ESP8266, ESP32-S3, and ESP32-C6 for this application.
 
-The firmware now supports both ESP8266 and ESP32-S3 platforms:
+## ESP32 Migration Notes
+
+The firmware now supports ESP8266, ESP32-S3, and ESP32-C6 platforms:
 
 - **Platform Detection**: Automatic via `#if defined(ESP8266)` / `#elif defined(ESP32)` preprocessor directives
 - **WiFi Libraries**: Conditional compilation switches between ESP8266WiFi.h and WiFi.h
-- **File System**: Both platforms use SPIFFS for storing settings and presets
-- **Performance**: ESP32-S3 offers higher performance with dual-core 240MHz CPU and more RAM
-- **PSRAM Support**: ESP32-S3 configuration enables PSRAM for larger buffers
-- **Future Enhancement**: Dual-core capabilities can be leveraged for better video processing performance
+- **File System**: All platforms use SPIFFS for storing settings and presets
+- **Performance**: 
+  - ESP32-S3 offers dual-core 240MHz CPU with PSRAM support
+  - ESP32-C6 offers single-core 160MHz RISC-V CPU with WiFi 6 support
+  - Both provide more RAM than ESP8266
+- **Future Enhancement**: ESP32-S3 dual-core capabilities can be leveraged for better video processing performance
 
 ## Known Limitations
 
-- ESP32-S3 build requires AsyncTCP library (automatically installed by PlatformIO)
-- Some ESP8266-specific features (fast GPIO macros) are disabled on ESP32
-- OTA updates work on both platforms but use platform-specific implementations
+- ESP32-S3 and ESP32-C6 builds require AsyncTCP library (automatically installed by PlatformIO)
+- Some ESP8266-specific features (fast GPIO macros) are disabled on ESP32 platforms
+- OTA updates work on all platforms but use platform-specific implementations
