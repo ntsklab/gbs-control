@@ -22,6 +22,7 @@
 #include "osd.h"
 #include "SSD1306Wire.h"
 #include "images.h"
+#include "pin_config.h"  // Hardware pin configuration
 
 #define HAVE_BUTTONS 0
 #define USE_NEW_OLED_MENU 1
@@ -30,10 +31,12 @@
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 
-SSD1306Wire display(0x3c, 4, 5, GEOMETRY_128_64, I2C_ONE, 700000); //inits I2C address & pins for OLED
-const int pin_clk = 14;            //D5 = GPIO14 (input of one direction for encoder)
-const int pin_data = 13;           //D7 = GPIO13	(input of one direction for encoder)
-const int pin_switch = 0;          //D3 = GPIO0 pulled HIGH, else boot fail (middle push button for encoder)
+SSD1306Wire display(OLED_I2C_ADDRESS, OLED_SDA, OLED_SCL, OLED_GEOMETRY, OLED_I2C_BUS, OLED_I2C_FREQ);
+
+// Rotary encoder pins
+const int pin_clk = PIN_ENCODER_CLK;
+const int pin_data = PIN_ENCODER_DATA;
+const int pin_switch = PIN_ENCODER_SWITCH;
 
 
 #if USE_NEW_OLED_MENU
@@ -168,16 +171,13 @@ WebSocketsServer webSocket(81);
 //AsyncWebSocket webSocket("/ws");
 PersWiFiManager persWM(server, dnsServer);
 
-#define DEBUG_IN_PIN 16 // marked "D12/MISO/D6" (Wemos D1) or D6 (Lolin NodeMCU)
-// SCL = D1 (Lolin), D15 (Wemos D1) // ESP8266 Arduino default map: SCL
-// SDA = D2 (Lolin), D14 (Wemos D1) // ESP8266 Arduino default map: SDA
-
+// Status LED control macros
 #define LEDON                     \
-    pinMode(12, OUTPUT); \
-    digitalWrite(12, LOW)
+    pinMode(PIN_LED, OUTPUT); \
+    digitalWrite(PIN_LED, LOW)
 #define LEDOFF                       \
-    digitalWrite(12, HIGH); \
-    pinMode(12, INPUT)
+    digitalWrite(PIN_LED, HIGH); \
+    pinMode(PIN_LED, INPUT)
 
 // fast ESP8266 digitalRead (21 cycles vs 77), *should* work with all possible input pins
 // but only "D7" and "D6" have been tested so far
@@ -5834,22 +5834,22 @@ void printInfo()
 
 void stopWire()
 {
-    pinMode(SCL, INPUT);
-    pinMode(SDA, INPUT);
+    pinMode(PIN_SCL, INPUT);
+    pinMode(PIN_SDA, INPUT);
     delayMicroseconds(80);
 }
 
 void startWire()
 {
-    Wire.begin(4, 5);
+    Wire.begin(PIN_SDA, PIN_SCL);
     // The i2c wire library sets pullup resistors on by default.
     // Disable these to detect/work with GBS onboard pullups
-    pinMode(SCL, OUTPUT_OPEN_DRAIN);
-    pinMode(SDA, OUTPUT_OPEN_DRAIN);
+    pinMode(PIN_SCL, OUTPUT_OPEN_DRAIN);
+    pinMode(PIN_SDA, OUTPUT_OPEN_DRAIN);
     // no issues even at 700k, requires ESP8266 160Mhz CPU clock, else (80Mhz) uses 400k in library
     // no problem with Si5351 at 700k either
     //Wire.setClock(400000);
-    Wire.setClock(700000);
+    Wire.setClock(I2C_CLOCK_FREQ);
 }
 
 void fastSogAdjust()
@@ -7223,8 +7223,8 @@ void ISR_ATTR isrRotaryEncoderPushForNewMenu()
 
 void setup()
 {
-    pinMode(4, OUTPUT_OPEN_DRAIN);
-    pinMode(5, OUTPUT_OPEN_DRAIN);
+    pinMode(PIN_SDA, OUTPUT_OPEN_DRAIN);
+    pinMode(PIN_SCL, OUTPUT_OPEN_DRAIN);
 
     display.init();                 //inits OLED on I2C bus
     display.flipScreenVertically(); //orientation fix for OLED
@@ -7339,8 +7339,8 @@ void setup()
     serialCommand = '@'; // ASCII @ = 0
     userCommand = '@';
 
-    pinMode(DEBUG_IN_PIN, INPUT);
-    pinMode(12, OUTPUT);
+    pinMode(PIN_DEBUG_IN, INPUT);
+    pinMode(PIN_LED, OUTPUT);
     LEDON; // enable the LED, lets users know the board is starting up
 
     //Serial.setDebugOutput(true); // if you want simple wifi debug info
