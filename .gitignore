@@ -1,0 +1,17 @@
+# ESP-IDF build output
+/build/
+
+# User-specific configuration
+/sdkconfig
+/sdkconfig.old
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python virtual environment
+venv/
+
+AGENT*.md

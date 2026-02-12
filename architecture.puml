@@ -1,0 +1,35 @@
+@startuml GBS8200_Control_Architecture
+skinparam backgroundColor #FEFEFE
+skinparam ArrowColor #333333
+
+package "Host System" {
+  [Serial Console] as console
+}
+
+package "ESP32C3 (ESP-IDF)" {
+  [Shell (shell.c)]
+  [GBS Control Loop (gbs_control.c)]
+  [GBS Presets (gbs_presets.c)]
+  [GBS Registers (gbs_regs.h)]
+  [GBS I2C Driver (gbs_i2c.c)]
+  [NVS Storage]
+}
+
+package "Hardware" {
+  [GBS8200 (TV5725)]
+  [I2C Bus]
+}
+
+console --> [Shell (shell.c)]
+[Shell (shell.c)] --> [GBS Presets (gbs_presets.c)]
+[Shell (shell.c)] --> [GBS Control Loop (gbs_control.c)]
+[Shell (shell.c)] --> [NVS Storage]
+
+[GBS Control Loop (gbs_control.c)] --> [GBS I2C Driver (gbs_i2c.c)]
+[GBS Presets (gbs_presets.c)] --> [GBS Registers (gbs_regs.h)]
+[GBS Registers (gbs_regs.h)] --> [GBS I2C Driver (gbs_i2c.c)]
+
+[GBS I2C Driver (gbs_i2c.c)] --> [I2C Bus]
+[I2C Bus] --> [GBS8200 (TV5725)]
+
+@enduml

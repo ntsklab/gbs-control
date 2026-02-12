@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="706px" preserveAspectRatio="none" style="width:557px;height:706px;background:#FEFEFE;" version="1.1" viewBox="0 0 557 706" width="557px" zoomAndPan="magnify"><defs><filter height="300%" id="fw28ghf6vve6q" width="300%" x="-1" y="-1"><feGaussianBlur result="blurOut" stdDeviation="2.0"/><feColorMatrix in="blurOut" result="blurOut2" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .4 0"/><feOffset dx="4.0" dy="4.0" in="blurOut2" result="blurOut3"/><feBlend in="SourceGraphic" in2="blurOut3" mode="normal"/></filter></defs><g><!--MD5=[bf2bc694ee4cb21fee85b624928d3acf]
+cluster Host System--><polygon fill="#FEFEFE" filter="url(#fw28ghf6vve6q)" points="208,24,295.375,24,302.375,43.9999,358,43.9999,358,106,208,106,208,24" style="stroke: #000000; stroke-width: 1.5;"/><line style="stroke: #000000; stroke-width: 1.5;" x1="208" x2="302.375" y1="43.9999" y2="43.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="81.375" x="212" y="38.0399">Host System</text><!--MD5=[c109b47fd88918c37cf9d3e1db93d080]
+cluster ESP32C3 (ESP-IDF)--><polygon fill="#FEFEFE" filter="url(#fw28ghf6vve6q)" points="22,130,154,130,161,149.9999,535,149.9999,535,494,22,494,22,130" style="stroke: #000000; stroke-width: 1.5;"/><line style="stroke: #000000; stroke-width: 1.5;" x1="22" x2="161" y1="149.9999" y2="149.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="126" x="26" y="144.0399">ESP32C3 (ESP-IDF)</text><!--MD5=[d90b76233c116de50efdb789cae7edae]
+cluster Hardware--><polygon fill="#FEFEFE" filter="url(#fw28ghf6vve6q)" points="207,518,272.5,518,279.5,537.9999,371,537.9999,371,694,207,694,207,518" style="stroke: #000000; stroke-width: 1.5;"/><line style="stroke: #000000; stroke-width: 1.5;" x1="207" x2="279.5" y1="537.9999" y2="537.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="59.5" x="211" y="532.0399">Hardware</text><!--MD5=[5ff5fa45ad236cb7c8993bec112332ca]
+entity console--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="118" x="224" y="56"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="219" y="61"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="219" y="79.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="98" x="234" y="78.0399">Serial Console</text><!--MD5=[cdcf2fb0ccc03468c1dfa0bfa778f4f5]
+entity Shell (shell.c)--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="125" x="220.5" y="162"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="215.5" y="167"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="215.5" y="185.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="105" x="230.5" y="184.0399">Shell (shell.c)</text><!--MD5=[3fb101dab54bcf6b6d5e67cb9c135aef]
+entity GBS Control Loop (gbs_control.c)--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="244" x="38" y="350"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="33" y="355"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="33" y="373.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="224" x="48" y="372.0399">GBS Control Loop (gbs_control.c)</text><!--MD5=[924c58dfd577050fa3d63c4c8b383dd4]
+entity GBS Presets (gbs_presets.c)--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="209" x="178.5" y="256"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="173.5" y="261"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="173.5" y="279.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="189" x="188.5" y="278.0399">GBS Presets (gbs_presets.c)</text><!--MD5=[d033f4415d3b4223e4309720f8ed2d83]
+entity GBS Registers (gbs_regs.h)--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="202" x="317" y="350"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="312" y="355"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="312" y="373.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="182" x="327" y="372.0399">GBS Registers (gbs_regs.h)</text><!--MD5=[9e5f3a709910b9527400bab23f1784bc]
+entity GBS I2C Driver (gbs_i2c.c)--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="202" x="188" y="444"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="183" y="449"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="183" y="467.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="182" x="198" y="466.0399">GBS I2C Driver (gbs_i2c.c)</text><!--MD5=[b4ea5daa09c6f3f95c0cfbf46cb1a9c7]
+entity NVS Storage--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="97" x="422.5" y="256"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="417.5" y="261"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="417.5" y="279.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="77" x="432.5" y="278.0399">NVS Storage</text><!--MD5=[54ef4fc9a84d9c971f8a8b2df05b85a5]
+entity GBS8200 (TV5725)--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="132" x="223" y="644"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="218" y="649"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="218" y="667.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="112" x="233" y="666.0399">GBS8200 (TV5725)</text><!--MD5=[c3555dae0233fd0527442c4ac6391014]
+entity I2C Bus--><rect fill="#FEFECE" filter="url(#fw28ghf6vve6q)" height="33.9999" style="stroke: #A80036; stroke-width: 1.5;" width="69" x="254.5" y="550"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="249.5" y="555"/><rect fill="#FEFECE" height="5" style="stroke: #A80036; stroke-width: 1.5;" width="10" x="249.5" y="573.9999"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="49" x="264.5" y="572.0399">I2C Bus</text><!--MD5=[3890783fd7aa5d67381160b33a18d2cd]
+link console to Shell (shell.c)--><path d="M283,90.25 C283,108.19 283,137.12 283,156.82 " fill="none" id="console-&gt;Shell (shell.c)" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="283,161.86,287,152.86,283,156.86,279,152.86,283,161.86" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[084e23db22b2b2c2b0bca3770a10bee9]
+link Shell (shell.c) to GBS Presets (gbs_presets.c)--><path d="M283,196.03 C283,211.1 283,233.79 283,250.45 " fill="none" id="Shell (shell.c)-&gt;GBS Presets (gbs_presets.c)" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="283,255.85,287,246.85,283,250.85,279,246.85,283,255.85" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[337366b1e3555551ba6251af32805be4]
+link Shell (shell.c) to GBS Control Loop (gbs_control.c)--><path d="M236.2,196 C209.05,207.97 177.12,227.27 161,256 C145.53,283.56 149.64,321.45 154.49,344.81 " fill="none" id="Shell (shell.c)-&gt;GBS Control Loop (gbs_control.c)" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="155.59,349.84,157.5962,340.1976,154.5326,344.9531,149.7771,341.8895,155.59,349.84" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[aade414e3a68d89c718b0d9026eaf971]
+link Shell (shell.c) to NVS Storage--><path d="M315.75,196.03 C348.57,212.09 399.04,236.78 433.46,253.63 " fill="none" id="Shell (shell.c)-&gt;NVS Storage" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="438,255.85,431.6809,248.2956,433.5108,253.6483,428.1582,255.4783,438,255.85" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[406fae2e9c253d8d09bfa17d01e1135d]
+link GBS Control Loop (gbs_control.c) to GBS I2C Driver (gbs_i2c.c)--><path d="M182.47,384.03 C204.62,399.82 238.49,423.98 262.08,440.8 " fill="none" id="GBS Control Loop (gbs_control.c)-&gt;GBS I2C Driver (gbs_i2c.c)" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="266.35,443.85,261.3401,435.3706,262.2775,440.9492,256.6988,441.8866,266.35,443.85" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[3e4fd98bed8eb41524634004f0e96f48]
+link GBS Presets (gbs_presets.c) to GBS Registers (gbs_regs.h)--><path d="M306.52,290.03 C329.8,305.89 365.44,330.18 390.13,347.01 " fill="none" id="GBS Presets (gbs_presets.c)-&gt;GBS Registers (gbs_regs.h)" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="394.3,349.85,389.1362,341.4634,390.1752,347.024,384.6146,348.0631,394.3,349.85" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[3f2756d2e15c7a1c780d1bedaf014d6c]
+link GBS Registers (gbs_regs.h) to GBS I2C Driver (gbs_i2c.c)--><path d="M395.53,384.03 C373.38,399.82 339.51,423.98 315.92,440.8 " fill="none" id="GBS Registers (gbs_regs.h)-&gt;GBS I2C Driver (gbs_i2c.c)" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="311.65,443.85,321.3012,441.8866,315.7225,440.9492,316.6599,435.3706,311.65,443.85" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[5f23e49d81cd0794a0e2317c9fa79d80]
+link GBS I2C Driver (gbs_i2c.c) to I2C Bus--><path d="M289,478.25 C289,496.19 289,525.12 289,544.82 " fill="none" id="GBS I2C Driver (gbs_i2c.c)-&gt;I2C Bus" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="289,549.86,293,540.86,289,544.86,285,540.86,289,549.86" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[58d53421c6f21fd753c3d9b1f194932d]
+link I2C Bus to GBS8200 (TV5725)--><path d="M289,584.03 C289,599.1 289,621.79 289,638.45 " fill="none" id="I2C Bus-&gt;GBS8200 (TV5725)" style="stroke: #333333; stroke-width: 1.0;"/><polygon fill="#333333" points="289,643.85,293,634.85,289,638.85,285,634.85,289,643.85" style="stroke: #333333; stroke-width: 1.0;"/><!--MD5=[6cc948d58d93338bb87cf7f8f388ec7a]
+@startuml GBS8200_Control_Architecture
+skinparam backgroundColor #FEFEFE
+skinparam ArrowColor #333333
+
+package "Host System" {
+  [Serial Console] as console
+}
+
+package "ESP32C3 (ESP-IDF)" {
+  [Shell (shell.c)]
+  [GBS Control Loop (gbs_control.c)]
+  [GBS Presets (gbs_presets.c)]
+  [GBS Registers (gbs_regs.h)]
+  [GBS I2C Driver (gbs_i2c.c)]
+  [NVS Storage]
+}
+
+package "Hardware" {
+  [GBS8200 (TV5725)]
+  [I2C Bus]
+}
+
+console - -> [Shell (shell.c)]
+[Shell (shell.c)] - -> [GBS Presets (gbs_presets.c)]
+[Shell (shell.c)] - -> [GBS Control Loop (gbs_control.c)]
+[Shell (shell.c)] - -> [NVS Storage]
+
+[GBS Control Loop (gbs_control.c)] - -> [GBS I2C Driver (gbs_i2c.c)]
+[GBS Presets (gbs_presets.c)] - -> [GBS Registers (gbs_regs.h)]
+[GBS Registers (gbs_regs.h)] - -> [GBS I2C Driver (gbs_i2c.c)]
+
+[GBS I2C Driver (gbs_i2c.c)] - -> [I2C Bus]
+[I2C Bus] - -> [GBS8200 (TV5725)]
+
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 19:22:07 JST 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 21.0.10+7-Debian-1deb13u1
+Operating System: Linux
+Default Encoding: UTF-8
+Language: ja
+Country: JP
+--></g></svg>

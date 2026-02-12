@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "shell.c"
+        "gbs_control.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        gbs_i2c
+        gbs_regs
+        gbs_presets
+)
