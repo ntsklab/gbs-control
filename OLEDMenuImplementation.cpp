@@ -4,6 +4,8 @@
 #include <ESP8266WiFi.h>
 #elif defined(ESP32)
 #include <WiFi.h>
+#include <FS.h>
+#include <SPIFFS.h>
 #endif
 #include "OLEDMenuImplementation.h"
 #include "options.h"
@@ -176,7 +178,11 @@ bool resetMenuHandler(OLEDMenuManager *manager, OLEDMenuItem *item, OLEDMenuNav,
         // not precise
         if (millis() - oledMenuFreezeStartTime >= oledMenuFreezeTimeoutInMS) {
             manager->unfreeze();
+#if defined(ESP8266)
             ESP.reset();
+#else
+            ESP.restart();
+#endif
             return false;
         }
         return false;

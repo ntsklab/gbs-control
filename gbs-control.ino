@@ -31,6 +31,12 @@
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 
+// Forward declarations for functions defined later in this file
+void startWebserver();
+void handleType2Command(char argument);
+void initUpdateOTA();
+void saveUserPrefs();
+
 SSD1306Wire display(OLED_I2C_ADDRESS, OLED_SDA, OLED_SCL, OLED_GEOMETRY, OLED_I2C_BUS, OLED_I2C_FREQ);
 
 // Rotary encoder pins
@@ -6489,7 +6495,7 @@ void runSyncWatcher()
             boolean needPostAdjust = 0;
             static uint16_t activePresetLineCount = 0;
             // is the source in range for scaling RGBHV and is it currently in mode 15?
-            uint16 sourceLines = GBS::STATUS_SYNC_PROC_VTOTAL::read(); // if sourceLines = 0, might be in some reset state
+            uint16_t sourceLines = GBS::STATUS_SYNC_PROC_VTOTAL::read(); // if sourceLines = 0, might be in some reset state
             if ((sourceLines <= 535 && sourceLines != 0) && rto->videoStandardInput == 15) {
                 uint16_t firstDetectedSourceLines = sourceLines;
                 boolean moveOn = 1;
@@ -7267,7 +7273,11 @@ void setup()
         #elif defined(ESP32)
         WiFi.setSleep(false); // ESP32 equivalent
         #endif
+#if defined(ESP8266)
         WiFi.setOutputPower(16.0f);         // float: min 0.0f, max 20.5f
+#elif defined(ESP32)
+        WiFi.setTxPower(WIFI_POWER_17dBm);  // closest to 16dBm
+#endif
         startWebserver();
         rto->webServerStarted = true;
     } else {
@@ -7770,7 +7780,9 @@ void handleWiFi(boolean instant)
 {
     static unsigned long lastTimePing = millis();
     if (rto->webServerEnabled && rto->webServerStarted) {
+#if defined(ESP8266)
         MDNS.update();
+#endif
         persWM.handleWiFi(); // if connected, returns instantly. otherwise it reconnects or opens AP
         dnsServer.processNextRequest();
 
@@ -8968,7 +8980,7 @@ void loop()
 #endif
 }
 
-#if defined(ESP8266)
+#if defined(ESP8266) || defined(ESP32)
 #include "webui_html.h"
 // gzip -c9 webui.html > webui_html && xxd -i webui_html > webui_html.h && rm webui_html && sed -i -e 's/unsigned char webui_html\[]/const uint8_t webui_html[] PROGMEM/' webui_html.h && sed -i -e 's/unsigned int webui_html_len/const unsigned int webui_html_len/' webui_html.h
 
@@ -9572,7 +9584,9 @@ void handleType2Command(char argument)
 //  }
 //}
 
+#if defined(ESP8266)
 WiFiEventHandler disconnectedEventHandler;
+#endif
 
 void startWebserver()
 {
@@ -9580,10 +9594,16 @@ void startWebserver()
     persWM.onConnect([]() {
         SerialM.print(F("(WiFi): STA mode connected; IP: "));
         SerialM.println(WiFi.localIP().toString());
+#if defined(ESP8266)
         if (MDNS.begin(device_hostname_partial, WiFi.localIP())) { // MDNS request for gbscontrol.local
+#elif defined(ESP32)
+        if (MDNS.begin(device_hostname_partial)) { // MDNS request for gbscontrol.local
+#endif
             //Serial.println("MDNS started");
             MDNS.addService("http", "tcp", 80); // Add service to MDNS-SD
+#if defined(ESP8266)
             MDNS.announce();
+#endif
         }
         SerialM.println(FPSTR(st_info_string));
     });
@@ -9592,10 +9612,17 @@ void startWebserver()
         // add mdns announce here as well?
     });
 
+#if defined(ESP8266)
     disconnectedEventHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected &event) {
         Serial.print("Station disconnected, reason: ");
         Serial.println(event.reason);
     });
+#elif defined(ESP32)
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        Serial.print("Station disconnected, reason: ");
+        Serial.println(info.wifi_sta_disconnected.reason);
+    }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+#endif
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         //Serial.println("sending web page");

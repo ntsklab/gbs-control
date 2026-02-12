@@ -28,6 +28,10 @@
 #include <core_esp8266_features.h>
 #endif
 
+#if defined(ESP32)
+#define CORE_HAS_LIBB64
+#endif
+
 extern "C" {
 #ifdef CORE_HAS_LIBB64
 #include <libb64/cencode.h>
@@ -39,7 +43,7 @@ extern "C" {
 #ifdef ESP8266
 #include <Hash.h>
 #elif defined(ESP32)
-#include <hwcrypto/sha.h>
+#include <mbedtls/sha1.h>
 #else
 
 extern "C" {
@@ -536,7 +540,12 @@ String WebSockets::acceptKey(String & clientKey) {
     sha1(clientKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11", &sha1HashBin[0]);
 #elif defined(ESP32)
     String data = clientKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-    esp_sha(SHA1, (unsigned char *)data.c_str(), data.length(), &sha1HashBin[0]);
+    mbedtls_sha1_context ctx;
+    mbedtls_sha1_init(&ctx);
+    mbedtls_sha1_starts(&ctx);
+    mbedtls_sha1_update(&ctx, (const unsigned char *)data.c_str(), data.length());
+    mbedtls_sha1_finish(&ctx, sha1HashBin);
+    mbedtls_sha1_free(&ctx);
 #else
     clientKey += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     SHA1_CTX ctx;

@@ -112,7 +112,7 @@ public:
     {
         memset(&this->handlers, 0, sizeof(this->handlers));
     }
-    uint8 preset;
+    uint8_t preset;
     void registerIcon(OSDIcon icon, OSDHanlder handler)
     {
         this->handlers[(uint8_t)icon] = handler;
