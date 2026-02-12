@@ -1,7 +1,7 @@
 # Modified gbs-control
 - Add PCB gerber
 - Modified for ESP-WROOM-02(D)
-- **NEW: ESP32-S3 and ESP32-C6 support added**
+- **NEW: ESP32-S3 support add(WIP)**
 
 [https://in-deep.blue/archives/1246](https://in-deep.blue/archives/1246)
 
