@@ -13,6 +13,7 @@
 #include "esp_http_server.h"
 #include "WString.h"
 #include "pgmspace.h"
+#include "FS.h"
 
 // Forward declarations
 class AsyncWebServer;
@@ -83,13 +84,23 @@ public:
 
     // Parameter access
     bool hasParam(const String &name, bool isPost = false) const;
-    const AsyncWebParameter *getParam(const String &name, bool isPost = false) const;
-    const AsyncWebParameter *getParam(int index) const;
+    AsyncWebParameter *getParam(const String &name, bool isPost = false) const;
+    AsyncWebParameter *getParam(int index) const;
     int params() const { return _params.size(); }
+
+    // Get parameter value by name (searches GET then POST params)
+    String arg(const String &name) const {
+        const AsyncWebParameter *p = getParam(name, false);
+        if (!p) p = getParam(name, true);
+        if (p) return p->value();
+        return String();
+    }
 
     // Send response
     void send(int code, const String &contentType = "", const String &content = "");
     void send(AsyncWebServerResponse *response);
+    // Send from SPIFFS
+    void send(SPIFFSClass &fs, const String &path, const String &contentType, bool download = false);
     // Send from PROGMEM
     void send_P(int code, const String &contentType, const uint8_t *content, size_t len);
 
@@ -114,6 +125,9 @@ public:
 
     void parseParams();
 
+    // Temp file for upload handling
+    File _tempFile;
+
 private:
     httpd_req_t *_req;
     std::vector<AsyncWebParameter> _params;
@@ -129,15 +143,35 @@ typedef std::function<void(AsyncWebServerRequest *, const String &filename, size
 typedef std::function<void(AsyncWebServerRequest *, uint8_t *data, size_t len,
                            size_t index, size_t total)> ArBodyHandlerFunction;
 
-// HTTP methods
-#define HTTP_GET     1
-#define HTTP_POST    2
-#define HTTP_DELETE  3
-#define HTTP_PUT     4
-#define HTTP_PATCH   5
-#define HTTP_HEAD    6
-#define HTTP_OPTIONS 7
-#define HTTP_ANY     0
+// HTTP methods - use esp_http_server values to avoid conflicts
+// esp_http_server.h defines HTTP_GET, HTTP_POST etc. as enum values
+// We use our own namespace-safe constants
+#define GBS_HTTP_GET     1
+#define GBS_HTTP_POST    2
+#define GBS_HTTP_DELETE  3
+#define GBS_HTTP_PUT     4
+#define GBS_HTTP_PATCH   5
+#define GBS_HTTP_HEAD    6
+#define GBS_HTTP_OPTIONS 7
+#define GBS_HTTP_ANY     0
+
+// Map the names used by the application code
+#undef HTTP_GET
+#undef HTTP_POST
+#undef HTTP_DELETE
+#undef HTTP_PUT
+#undef HTTP_PATCH
+#undef HTTP_HEAD
+#undef HTTP_OPTIONS
+#undef HTTP_ANY
+#define HTTP_GET     GBS_HTTP_GET
+#define HTTP_POST    GBS_HTTP_POST
+#define HTTP_DELETE  GBS_HTTP_DELETE
+#define HTTP_PUT     GBS_HTTP_PUT
+#define HTTP_PATCH   GBS_HTTP_PATCH
+#define HTTP_HEAD    GBS_HTTP_HEAD
+#define HTTP_OPTIONS GBS_HTTP_OPTIONS
+#define HTTP_ANY     GBS_HTTP_ANY
 
 // --- AsyncWebServer ---
 class AsyncWebServer {

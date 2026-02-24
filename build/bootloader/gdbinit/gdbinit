@@ -1,0 +1,2 @@
+source /home/user/work/gbs-control-esp/build/bootloader/gdbinit/symbols
+source /home/user/work/gbs-control-esp/build/bootloader/gdbinit/connect

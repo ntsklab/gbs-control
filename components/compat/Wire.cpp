@@ -6,6 +6,14 @@
 
 #include "Wire.h"
 #include "esp_log.h"
+
+// Default SDA/SCL pins for ESP32-C3 if not defined
+#ifndef SDA
+#define SDA 6
+#endif
+#ifndef SCL
+#define SCL 7
+#endif
 #include <string.h>
 
 static const char *TAG = "Wire";

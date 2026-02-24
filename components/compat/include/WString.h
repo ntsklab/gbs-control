@@ -108,6 +108,10 @@ public:
     float toFloat() const { return atof(_str.c_str()); }
     double toDouble() const { return atof(_str.c_str()); }
 
+    // Equality
+    bool equals(const String &s) const { return _str == s._str; }
+    bool equals(const char *cstr) const { return _str == (cstr ? cstr : ""); }
+
     // Status
     bool startsWith(const String &prefix) const { return _str.compare(0, prefix._str.length(), prefix._str) == 0; }
     bool endsWith(const String &suffix) const {
@@ -193,5 +197,9 @@ private:
 // String concatenation with numeric types
 inline String operator+(const String &lhs, char rhs) { String s(lhs); s += rhs; return s; }
 inline String operator+(const String &lhs, int rhs) { String s(lhs); s += String(rhs); return s; }
+inline String operator+(const String &lhs, long rhs) { String s(lhs); s += String((long)rhs); return s; }
+inline String operator+(const String &lhs, unsigned long rhs) { String s(lhs); s += String((unsigned long)rhs); return s; }
+
+extern const String emptyString;
 
 #endif // WSTRING_H_

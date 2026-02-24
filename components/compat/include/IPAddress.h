@@ -22,8 +22,8 @@ public:
     String toString() const {
         char buf[16];
         snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
-                 _addr & 0xFF, (_addr >> 8) & 0xFF,
-                 (_addr >> 16) & 0xFF, (_addr >> 24) & 0xFF);
+                 (unsigned)(_addr & 0xFF), (unsigned)((_addr >> 8) & 0xFF),
+                 (unsigned)((_addr >> 16) & 0xFF), (unsigned)((_addr >> 24) & 0xFF));
         return String(buf);
     }
 

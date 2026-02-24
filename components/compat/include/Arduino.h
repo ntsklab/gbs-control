@@ -46,6 +46,7 @@ typedef uint16_t word;
 #define OUTPUT        0x02
 #define INPUT_PULLUP  0x05
 #define INPUT_PULLDOWN 0x09
+#define OUTPUT_OPEN_DRAIN 0x13
 
 #define RISING    1
 #define FALLING   2
@@ -168,17 +169,21 @@ public:
     static uint32_t getCycleCount() { return esp_cpu_get_cycle_count(); }
     static void reset() { esp_restart(); }
     static void restart() { esp_restart(); }
+    static void wdtDisable() { /* ESP-IDF TWDT managed via menuconfig */ }
+    static void wdtEnable(uint32_t timeout_ms) { (void)timeout_ms; }
 };
 
 extern EspClass ESP;
 
 // ==================== Math / Utility ====================
-#ifndef min
-#define min(a,b) ((a)<(b)?(a):(b))
-#endif
-#ifndef max
-#define max(a,b) ((a)>(b)?(a):(b))
-#endif
+// Use template functions to avoid macro issues with templates
+#undef min
+#undef max
+template<typename T> static inline T min(T a, T b) { return (a < b) ? a : b; }
+template<typename T> static inline T max(T a, T b) { return (a > b) ? a : b; }
+// Also provide two-type versions
+template<typename T, typename U> static inline auto min(T a, U b) -> decltype(a < b ? a : b) { return (a < b) ? a : b; }
+template<typename T, typename U> static inline auto max(T a, U b) -> decltype(a > b ? a : b) { return (a > b) ? a : b; }
 #ifndef constrain
 #define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
 #endif
@@ -219,6 +224,11 @@ static inline long map(long x, long in_min, long in_max, long out_min, long out_
 #ifndef bit
 #define bit(b) (1UL << (b))
 #endif
+
+// ==================== Random ====================
+long random(long max);
+long random(long min, long max);
+void randomSeed(unsigned long seed);
 
 // ==================== Serial ====================
 #include "HardwareSerial.h"

@@ -4,6 +4,12 @@
  * Implements the AsyncWebServer API using ESP-IDF's esp_http_server.
  */
 
+// Save our HTTP method macros, then restore esp_http_server's originals for this file
+#include "esp_http_server.h"
+// Capture the esp-idf httpd method enum values before ESPAsyncWebServer.h redefines them
+static constexpr httpd_method_t HTTPD_METHOD_GET  = (httpd_method_t)HTTP_GET;
+static constexpr httpd_method_t HTTPD_METHOD_POST = (httpd_method_t)HTTP_POST;
+
 #include "ESPAsyncWebServer.h"
 #include "esp_log.h"
 #include <string.h>
@@ -87,32 +93,30 @@ bool AsyncWebServerRequest::hasParam(const String &name, bool isPost) const
     return false;
 }
 
-const AsyncWebParameter *AsyncWebServerRequest::getParam(const String &name, bool isPost) const
+AsyncWebParameter *AsyncWebServerRequest::getParam(const String &name, bool isPost) const
 {
-    for (const auto &p : _params) {
-        if (p.name() == name && (!isPost || p.isForm())) return &p;
+    for (auto &p : _params) {
+        if (p.name() == name && (!isPost || p.isForm())) return const_cast<AsyncWebParameter*>(&p);
     }
     return nullptr;
 }
 
-const AsyncWebParameter *AsyncWebServerRequest::getParam(int index) const
+AsyncWebParameter *AsyncWebServerRequest::getParam(int index) const
 {
-    if (index >= 0 && index < (int)_params.size()) return &_params[index];
+    if (index >= 0 && index < (int)_params.size()) return const_cast<AsyncWebParameter*>(&_params[index]);
     return nullptr;
 }
 
 String AsyncWebServerRequest::url() const
 {
-    char buf[512];
-    // httpd_req_get_url_query_str doesn't give us the path, use URI
     return String(_req->uri);
 }
 
 int AsyncWebServerRequest::method() const
 {
     switch (_req->method) {
-        case HTTP_GET: return HTTP_GET;
-        case HTTP_POST: return HTTP_POST;
+        case HTTPD_METHOD_GET: return HTTP_GET;
+        case HTTPD_METHOD_POST: return HTTP_POST;
         default: return HTTP_GET;
     }
 }
@@ -161,6 +165,32 @@ void AsyncWebServerRequest::send_P(int code, const String &contentType, const ui
     httpd_resp_set_status(_req, code == 200 ? "200 OK" : "500 Internal Server Error");
     httpd_resp_set_type(_req, contentType.c_str());
     httpd_resp_send(_req, (const char *)content, len);
+}
+
+void AsyncWebServerRequest::send(SPIFFSClass &fs, const String &path, const String &contentType, bool download)
+{
+    (void)download;
+    File f = fs.open(path, "r");
+    if (f) {
+        size_t sz = f.size();
+        String ct = contentType.length() ? contentType : String("application/octet-stream");
+        httpd_resp_set_status(_req, "200 OK");
+        httpd_resp_set_type(_req, ct.c_str());
+        // Send in chunks
+        char buf[512];
+        size_t remaining = sz;
+        while (remaining > 0) {
+            size_t toRead = remaining > sizeof(buf) ? sizeof(buf) : remaining;
+            size_t bytesRead = f.read((uint8_t*)buf, toRead);
+            if (bytesRead == 0) break;
+            httpd_resp_send_chunk(_req, buf, bytesRead);
+            remaining -= bytesRead;
+        }
+        httpd_resp_send_chunk(_req, nullptr, 0); // signal end
+        f.close();
+    } else {
+        send(404, "text/plain", "File not found");
+    }
 }
 
 AsyncWebServerResponse *AsyncWebServerRequest::beginResponse(int code, const String &contentType, const String &content)
@@ -250,8 +280,7 @@ void AsyncWebServer::begin()
     for (auto &route : _routes) {
         httpd_uri_t http_uri = {};
         http_uri.uri = route.uri.c_str();
-        http_uri.method = (route.method == HTTP_POST) ? HTTP_POST :
-                         (route.method == HTTP_GET) ? HTTP_GET : HTTP_GET;
+        http_uri.method = (route.method == HTTP_POST) ? HTTPD_METHOD_POST : HTTPD_METHOD_GET;
         http_uri.handler = requestHandler;
         http_uri.user_ctx = this;
 
@@ -260,7 +289,7 @@ void AsyncWebServer::begin()
         // If method is ANY, also register for POST
         if (route.method == HTTP_ANY) {
             httpd_uri_t post_uri = http_uri;
-            post_uri.method = HTTP_POST;
+            post_uri.method = HTTPD_METHOD_POST;
             httpd_register_uri_handler(_server, &post_uri);
         }
     }

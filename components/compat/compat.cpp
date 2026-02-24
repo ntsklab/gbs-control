@@ -34,6 +34,7 @@ WiFiClass WiFi;
 MDNSResponder MDNS;
 ArduinoOTAClass ArduinoOTA;
 SPIFFSClass SPIFFS;
+const String emptyString;
 
 // ==================== GPIO ====================
 
@@ -113,7 +114,7 @@ void attachInterrupt(uint8_t pin, voidFuncPtr handler, int mode)
         gpio_isr_service_installed = true;
     }
 
-    gpio_intr_type_t intr_type;
+    gpio_int_type_t intr_type;
     switch (mode) {
         case RISING:  intr_type = GPIO_INTR_POSEDGE; break;
         case FALLING: intr_type = GPIO_INTR_NEGEDGE; break;
@@ -150,12 +151,12 @@ void HardwareSerial::begin(unsigned long baud, uint32_t config, int rxPin, int t
     uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
     uart_config.source_clk = UART_SCLK_DEFAULT;
 
-    ESP_ERROR_CHECK(uart_driver_install(_uart_num, 1024, 256, 0, NULL, 0));
-    ESP_ERROR_CHECK(uart_param_config(_uart_num, &uart_config));
+    ESP_ERROR_CHECK(uart_driver_install((uart_port_t)_uart_num, 1024, 256, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_param_config((uart_port_t)_uart_num, &uart_config));
 
     // Use default pins for UART0 on ESP32-C3 (TX=21, RX=20)
     if (rxPin >= 0 && txPin >= 0) {
-        ESP_ERROR_CHECK(uart_set_pin(_uart_num, txPin, rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+        ESP_ERROR_CHECK(uart_set_pin((uart_port_t)_uart_num, txPin, rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
     }
 
     _initialized = true;
@@ -164,7 +165,7 @@ void HardwareSerial::begin(unsigned long baud, uint32_t config, int rxPin, int t
 void HardwareSerial::end()
 {
     if (_initialized) {
-        uart_driver_delete(_uart_num);
+        uart_driver_delete((uart_port_t)_uart_num);
         _initialized = false;
     }
 }
@@ -173,7 +174,7 @@ int HardwareSerial::available()
 {
     if (!_initialized) return 0;
     size_t len = 0;
-    uart_get_buffered_data_len(_uart_num, &len);
+    uart_get_buffered_data_len((uart_port_t)_uart_num, &len);
     return len + (_peek_char >= 0 ? 1 : 0);
 }
 
@@ -186,7 +187,7 @@ int HardwareSerial::read()
         return c;
     }
     uint8_t c;
-    int len = uart_read_bytes(_uart_num, &c, 1, 0);
+    int len = uart_read_bytes((uart_port_t)_uart_num, &c, 1, 0);
     return len > 0 ? c : -1;
 }
 
@@ -195,7 +196,7 @@ int HardwareSerial::peek()
     if (!_initialized) return -1;
     if (_peek_char >= 0) return _peek_char;
     uint8_t c;
-    int len = uart_read_bytes(_uart_num, &c, 1, 0);
+    int len = uart_read_bytes((uart_port_t)_uart_num, &c, 1, 0);
     if (len > 0) {
         _peek_char = c;
         return c;
@@ -206,20 +207,20 @@ int HardwareSerial::peek()
 void HardwareSerial::flush()
 {
     if (_initialized) {
-        uart_wait_tx_done(_uart_num, portMAX_DELAY);
+        uart_wait_tx_done((uart_port_t)_uart_num, portMAX_DELAY);
     }
 }
 
 size_t HardwareSerial::write(uint8_t c)
 {
     if (!_initialized) return 0;
-    return uart_write_bytes(_uart_num, (const char *)&c, 1);
+    return uart_write_bytes((uart_port_t)_uart_num, (const char *)&c, 1);
 }
 
 size_t HardwareSerial::write(const uint8_t *buffer, size_t size)
 {
     if (!_initialized) return 0;
-    return uart_write_bytes(_uart_num, (const char *)buffer, size);
+    return uart_write_bytes((uart_port_t)_uart_num, (const char *)buffer, size);
 }
 
 // ==================== Stream static methods ====================
@@ -386,15 +387,22 @@ String WiFiClass::SSID()
     return String("");
 }
 
-String WiFiClass::localIP()
+IPAddress WiFiClass::localIP()
 {
     esp_netif_ip_info_t ip_info;
     if (_sta_netif && esp_netif_get_ip_info(_sta_netif, &ip_info) == ESP_OK) {
-        char buf[16];
-        snprintf(buf, sizeof(buf), IPSTR, IP2STR(&ip_info.ip));
-        return String(buf);
+        return IPAddress(ip_info.ip.addr);
     }
-    return String("0.0.0.0");
+    return IPAddress((uint32_t)0);
+}
+
+IPAddress WiFiClass::gatewayIP()
+{
+    esp_netif_ip_info_t ip_info;
+    if (_sta_netif && esp_netif_get_ip_info(_sta_netif, &ip_info) == ESP_OK) {
+        return IPAddress(ip_info.gw.addr);
+    }
+    return IPAddress((uint32_t)0);
 }
 
 String WiFiClass::macAddress()
@@ -787,6 +795,8 @@ Dir::~Dir()
     if (_dir) closedir((DIR *)_dir);
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 bool Dir::next()
 {
     if (!_dir) return false;
@@ -817,3 +827,9 @@ File Dir::openFile(const char *mode)
     if (!f) return File();
     return File(f, _currentName);
 }
+#pragma GCC diagnostic pop
+
+// ==================== Random ====================
+long random(long max) { if (max <= 0) return 0; return esp_random() % max; }
+long random(long min, long max) { if (min >= max) return min; return min + (esp_random() % (max - min)); }
+void randomSeed(unsigned long seed) { (void)seed; /* ESP32 uses hardware RNG */ }

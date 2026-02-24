@@ -7,6 +7,7 @@
 #define ESP8266WIFI_H_
 
 #include <string.h>
+#include <functional>
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_event.h"
@@ -20,7 +21,18 @@
 #define WIFI_AP_STA 3
 
 // WiFi sleep modes
-#define WIFI_NONE_SLEEP 0
+#define WIFI_NONE_SLEEP  0
+#define WIFI_LIGHT_SLEEP 1
+#define WIFI_MODEM_SLEEP 2
+
+// WiFi mode type (Arduino compat)
+typedef int WiFiMode_t;
+
+// WiFi event types
+struct WiFiEventStationModeDisconnected {
+    uint8_t reason = 0;
+};
+typedef std::function<void()> WiFiEventHandler;
 
 // WiFi status
 typedef enum {
@@ -43,7 +55,17 @@ public:
 
     // STA mode
     void begin(const char *ssid, const char *password = nullptr);
+    void begin() { begin(nullptr); }
+    void begin(const char *ssid, const char *password, int32_t channel, const uint8_t *bssid = nullptr, bool connect = true) {
+        (void)channel; (void)bssid; (void)connect;
+        begin(ssid, password);
+    }
+    void begin(const char *ssid, const String &password, int32_t channel = 0, const uint8_t *bssid = nullptr, bool connect = true) {
+        (void)channel; (void)bssid; (void)connect;
+        begin(ssid, password.c_str());
+    }
     void disconnect(bool wifiOff = false);
+    void reconnect() { disconnect(); begin(nullptr); }
     wl_status_t status();
     bool isConnected();
 
@@ -55,10 +77,12 @@ public:
 
     // Mode
     void mode(int m);
+    WiFiMode_t getMode() const { return (WiFiMode_t)_mode; }
 
     // Info
     String SSID();
-    String localIP();
+    IPAddress localIP();
+    IPAddress gatewayIP();
     String macAddress();
     int32_t RSSI();
 
@@ -83,6 +107,10 @@ public:
 
     // Event handler
     void onEvent(void (*handler)(int event));
+    WiFiEventHandler onStationModeDisconnected(std::function<void(const WiFiEventStationModeDisconnected&)> f) {
+        (void)f;
+        return WiFiEventHandler();
+    }
 
 private:
     bool _initialized;
