@@ -199,7 +199,7 @@ char userCommand;               // Serial / Web Server commands
 static uint8_t lastSegment = 0xFF; // GBS segment for direct access
 //uint8_t globalDelay; // used for dev / debug
 
-#if defined(ESP8266)
+#if defined(ESP8266) || defined(ESP32) || defined(ESP32C3) || defined(ESP_PLATFORM)
 // serial mirror class for websocket logs
 class SerialMirror : public Stream
 {
