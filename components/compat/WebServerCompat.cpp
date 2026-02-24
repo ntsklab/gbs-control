@@ -231,11 +231,12 @@ esp_err_t AsyncWebServer::requestHandler(httpd_req_t *req)
         if (route.uri == path.c_str() || route.uri == "*") {
             // Check method match
             bool methodMatch = (route.method == HTTP_ANY) ||
-                              (route.method == HTTP_GET && req->method == HTTP_GET) ||
-                              (route.method == HTTP_POST && req->method == HTTP_POST);
+                              (route.method == HTTP_GET && req->method == HTTPD_METHOD_GET) ||
+                              (route.method == HTTP_POST && req->method == HTTPD_METHOD_POST);
             if (methodMatch) {
                 AsyncWebServerRequest request(req);
                 request.parseParams();
+                ESP_LOGD(TAG, "Route matched: %s (method=%d)", path.c_str(), req->method);
                 route.handler(&request);
                 return ESP_OK;
             }

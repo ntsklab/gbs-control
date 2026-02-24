@@ -77,12 +77,43 @@ void TwoWire::begin(int sda, int scl, uint32_t frequency)
              _bus_num, _sda, _scl, (unsigned long)_frequency);
 }
 
+void TwoWire::end()
+{
+    if (!_initialized) return;
+
+    // Remove all cached device handles
+    for (int i = 0; i < _devCacheCount; i++) {
+        if (_devCache[i].handle) {
+            i2c_master_bus_rm_device(_devCache[i].handle);
+            _devCache[i].handle = nullptr;
+        }
+    }
+    _devCacheCount = 0;
+
+    // Delete the I2C bus
+    if (_bus_handle) {
+        i2c_del_master_bus(_bus_handle);
+        _bus_handle = nullptr;
+    }
+
+    _initialized = false;
+    ESP_LOGI(TAG, "I2C bus %d stopped", _bus_num);
+}
+
 void TwoWire::setClock(uint32_t frequency)
 {
     _frequency = frequency;
-    // Note: ESP-IDF I2C master driver sets clock per device, not per bus
-    // If there's a cached device handle, it will use the old frequency
-    // This is generally fine since we rarely change frequency at runtime
+    // ESP-IDF I2C master driver sets clock per device.
+    // If frequency changed, flush cache so new devices get the new rate.
+    if (_initialized && _devCacheCount > 0) {
+        for (int i = 0; i < _devCacheCount; i++) {
+            if (_devCache[i].handle) {
+                i2c_master_bus_rm_device(_devCache[i].handle);
+                _devCache[i].handle = nullptr;
+            }
+        }
+        _devCacheCount = 0;
+    }
 }
 
 i2c_master_dev_handle_t TwoWire::getDevHandle(uint8_t address)

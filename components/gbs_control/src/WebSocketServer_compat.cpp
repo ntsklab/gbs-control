@@ -83,6 +83,7 @@ void WebSocketsServer::begin()
         // Create our own httpd server on the specified port
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.server_port = _port;
+        config.ctrl_port = 32769;  // Different from main httpd (32768)
         config.max_open_sockets = WEBSOCKETS_SERVER_CLIENT_MAX + 1;
         config.stack_size = 8192;
 
@@ -93,14 +94,16 @@ void WebSocketsServer::begin()
         _ownServer = true;
     }
 
-    // Register WebSocket URI handler
+    // Register WebSocket URI handler on root path
+    // WebUI connects to ws://IP:81/ (root path)
     httpd_uri_t ws_uri = {};
-    ws_uri.uri = "/ws";
+    ws_uri.uri = "/";
     ws_uri.method = HTTP_GET;
     ws_uri.handler = ws_handler;
     ws_uri.user_ctx = this;
     ws_uri.is_websocket = true;
     ws_uri.handle_ws_control_frames = true;
+    ws_uri.supported_subprotocol = "arduino";  // WebUI requests this subprotocol
 
     httpd_register_uri_handler(_httpd, &ws_uri);
 

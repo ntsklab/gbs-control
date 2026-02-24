@@ -20,7 +20,9 @@ public:
 
     void begin(int sda = -1, int scl = -1, uint32_t frequency = 400000);
     void begin(uint8_t address) { begin(); } // slave mode stub
+    void end();
     void setClock(uint32_t frequency);
+    void setClockStretchLimit(uint32_t limit) { (void)limit; } // no-op on ESP-IDF
 
     void beginTransmission(uint8_t address);
     uint8_t endTransmission(bool sendStop = true);

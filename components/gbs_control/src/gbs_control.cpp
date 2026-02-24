@@ -5794,22 +5794,17 @@ void printInfo()
 
 void stopWire()
 {
-    pinMode(SCL, INPUT);
-    pinMode(SDA, INPUT);
+    // ESP-IDF: properly shut down I2C driver so it can be re-initialized
+    Wire.end();
     delayMicroseconds(80);
 }
 
 void startWire()
 {
     Wire.begin();
-    // The i2c wire library sets pullup resistors on by default.
-    // Disable these to detect/work with GBS onboard pullups
-    pinMode(SCL, OUTPUT_OPEN_DRAIN);
-    pinMode(SDA, OUTPUT_OPEN_DRAIN);
-    // no issues even at 700k, requires ESP8266 160Mhz CPU clock, else (80Mhz) uses 400k in library
-    // no problem with Si5351 at 700k either
+    // ESP-IDF I2C master driver handles pin configuration (open-drain + internal pullup).
+    // Do NOT call pinMode() on SDA/SCL here — it would detach the pins from the I2C peripheral.
     Wire.setClock(400000);
-    //Wire.setClock(700000);
 }
 
 void fastSogAdjust()
@@ -7185,6 +7180,9 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
 
 void gbs_setup()
 {
+    // Initialize I2C bus before any I2C device communication
+    startWire();
+
     display.init();                 //inits OLED on I2C bus
     display.flipScreenVertically(); //orientation fix for OLED
 
@@ -9883,9 +9881,7 @@ void startWebserver()
     }
 
     server.begin();    // Webserver for the site
-    // Share the HTTP server handle with WebSocket (can't run 2 httpd instances)
-    webSocket.setServer(server.getServer());
-    webSocket.begin(); // Websocket for interaction
+    webSocket.begin(); // Websocket for interaction on port 81
     yield();
 
 #ifdef HAVE_PINGER_LIBRARY
