@@ -31,17 +31,19 @@ TwoWire::TwoWire(int bus_num)
     , _txLength(0)
     , _rxLength(0)
     , _rxIndex(0)
-    , _cachedAddr(0xFF)
-    , _cachedDevHandle(nullptr)
+    , _devCacheCount(0)
 {
     memset(_txBuffer, 0, sizeof(_txBuffer));
     memset(_rxBuffer, 0, sizeof(_rxBuffer));
+    memset(_devCache, 0, sizeof(_devCache));
 }
 
 TwoWire::~TwoWire()
 {
-    if (_cachedDevHandle) {
-        i2c_master_bus_rm_device(_cachedDevHandle);
+    for (int i = 0; i < _devCacheCount; i++) {
+        if (_devCache[i].handle) {
+            i2c_master_bus_rm_device(_devCache[i].handle);
+        }
     }
     if (_bus_handle) {
         i2c_del_master_bus(_bus_handle);
@@ -85,30 +87,42 @@ void TwoWire::setClock(uint32_t frequency)
 
 i2c_master_dev_handle_t TwoWire::getDevHandle(uint8_t address)
 {
-    if (_cachedAddr == address && _cachedDevHandle) {
-        return _cachedDevHandle;
+    // Search existing cache
+    for (int i = 0; i < _devCacheCount; i++) {
+        if (_devCache[i].addr == address && _devCache[i].handle) {
+            return _devCache[i].handle;
+        }
     }
 
-    // Remove old device if different address
-    if (_cachedDevHandle) {
-        i2c_master_bus_rm_device(_cachedDevHandle);
-        _cachedDevHandle = nullptr;
-    }
-
+    // Create new device handle
     i2c_device_config_t dev_config = {};
     dev_config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     dev_config.device_address = address;
     dev_config.scl_speed_hz = _frequency;
 
-    esp_err_t ret = i2c_master_bus_add_device(_bus_handle, &dev_config, &_cachedDevHandle);
+    i2c_master_dev_handle_t handle = nullptr;
+    esp_err_t ret = i2c_master_bus_add_device(_bus_handle, &dev_config, &handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2C add device 0x%02X failed: %s", address, esp_err_to_name(ret));
-        _cachedDevHandle = nullptr;
         return nullptr;
     }
 
-    _cachedAddr = address;
-    return _cachedDevHandle;
+    // Add to cache (evict oldest if full)
+    if (_devCacheCount < MAX_CACHED_DEVS) {
+        _devCache[_devCacheCount].addr = address;
+        _devCache[_devCacheCount].handle = handle;
+        _devCacheCount++;
+    } else {
+        // Evict slot 0 (oldest)
+        i2c_master_bus_rm_device(_devCache[0].handle);
+        for (int i = 0; i < MAX_CACHED_DEVS - 1; i++) {
+            _devCache[i] = _devCache[i + 1];
+        }
+        _devCache[MAX_CACHED_DEVS - 1].addr = address;
+        _devCache[MAX_CACHED_DEVS - 1].handle = handle;
+    }
+
+    return handle;
 }
 
 void TwoWire::beginTransmission(uint8_t address)
@@ -124,7 +138,14 @@ uint8_t TwoWire::endTransmission(bool sendStop)
     i2c_master_dev_handle_t dev = getDevHandle(_txAddress);
     if (!dev) return 4;
 
-    esp_err_t ret = i2c_master_transmit(dev, _txBuffer, _txLength, 100);
+    esp_err_t ret;
+    if (_txLength == 0) {
+        // Zero-length transmit = I2C device probe (check if address ACKs)
+        // Use i2c_master_probe which sends start+addr and checks ACK
+        ret = i2c_master_probe(_bus_handle, _txAddress, 50);
+    } else {
+        ret = i2c_master_transmit(dev, _txBuffer, _txLength, 50);
+    }
     _txLength = 0;
 
     if (ret == ESP_OK) return 0;           // success
@@ -140,7 +161,7 @@ size_t TwoWire::requestFrom(uint8_t address, size_t quantity, bool sendStop)
     i2c_master_dev_handle_t dev = getDevHandle(address);
     if (!dev) return 0;
 
-    esp_err_t ret = i2c_master_receive(dev, _rxBuffer, quantity, 100);
+    esp_err_t ret = i2c_master_receive(dev, _rxBuffer, quantity, 50);
     if (ret != ESP_OK) {
         _rxLength = 0;
         _rxIndex = 0;

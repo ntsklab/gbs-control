@@ -58,9 +58,14 @@ private:
     size_t _rxLength;
     size_t _rxIndex;
 
-    // Device handle cache (for fast repeated access to same address)
-    uint8_t _cachedAddr;
-    i2c_master_dev_handle_t _cachedDevHandle;
+    // Device handle cache (multiple I2C devices: GBS=0x2C, Si5351, SSD1306=0x3C)
+    static constexpr int MAX_CACHED_DEVS = 4;
+    struct DevCache {
+        uint8_t addr;
+        i2c_master_dev_handle_t handle;
+    };
+    DevCache _devCache[MAX_CACHED_DEVS];
+    int _devCacheCount;
 
     i2c_master_dev_handle_t getDevHandle(uint8_t address);
 };

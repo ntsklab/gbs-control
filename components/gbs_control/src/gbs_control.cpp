@@ -9883,6 +9883,8 @@ void startWebserver()
     }
 
     server.begin();    // Webserver for the site
+    // Share the HTTP server handle with WebSocket (can't run 2 httpd instances)
+    webSocket.setServer(server.getServer());
     webSocket.begin(); // Websocket for interaction
     yield();
 
