@@ -9,8 +9,9 @@ idf_component_register(
         "src/OLEDMenuItem.cpp"
         "src/OSDManager.cpp"
         "src/PersWiFiManager.cpp"
+        "src/shell.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES compat gbs_presets esp_http_server
+    REQUIRES compat gbs_presets esp_http_server ble_serial
 )
 
 # Original WebSockets library is replaced by WebSocketServer_compat

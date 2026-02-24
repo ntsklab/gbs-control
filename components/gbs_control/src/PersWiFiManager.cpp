@@ -155,7 +155,9 @@ bool PersWiFiManager::begin(const String &ssid, const String &pass)
 
 String PersWiFiManager::getApSsid()
 {
-    return _apSsid.length() ? _apSsid : "gbscontrol";
+    if (_apSsid.length()) return _apSsid;
+    extern const char *ap_ssid;
+    return String(ap_ssid);
 } //getApSsid
 
 void PersWiFiManager::setApCredentials(const String &apSsid, const String &apPass)

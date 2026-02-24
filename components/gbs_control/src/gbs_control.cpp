@@ -1,6 +1,7 @@
 // ESP-IDF port: Include Arduino compatibility layer first
 #include "Arduino.h"
 #include "pin_config.h"  // Consolidated pin definitions for XIAO ESP32-C3
+#include "esp_mac.h"     // esp_efuse_mac_get_default
 
 #include "ntsc_240p.h"
 #include "pal_240p.h"
@@ -101,29 +102,44 @@ Si5351mcu Si;
 
 #define THIS_DEVICE_MASTER
 #ifdef THIS_DEVICE_MASTER
-const char *ap_ssid = "gbscontrol";
-const char *ap_password = "qqqqqqqq";
-// change device_hostname_full and device_hostname_partial to rename the device
-// (allows 2 or more on the same network)
-// new: only use _partial throughout, comply to standards
-const char *device_hostname_full = "gbscontrol.local";
-const char *device_hostname_partial = "gbscontrol"; // for MDNS
-//
-static const char ap_info_string[] PROGMEM =
-    "(WiFi): AP mode (SSID: gbscontrol, pass 'qqqqqqqq'): Access 'gbscontrol.local' in your browser";
-static const char st_info_string[] PROGMEM =
-    "(WiFi): Access 'http://gbscontrol:80' or 'http://gbscontrol.local' (or device IP) in your browser";
+#define DEVICE_NAME_BASE "gbs"
 #else
-const char *ap_ssid = "gbsslave";
-const char *ap_password = "qqqqqqqq";
-const char *device_hostname_full = "gbsslave.local";
-const char *device_hostname_partial = "gbsslave"; // for MDNS
-//
-static const char ap_info_string[] PROGMEM =
-    "(WiFi): AP mode (SSID: gbsslave, pass 'qqqqqqqq'): Access 'gbsslave.local' in your browser";
-static const char st_info_string[] PROGMEM =
-    "(WiFi): Access 'http://gbsslave:80' or 'http://gbsslave.local' (or device IP) in your browser";
+#define DEVICE_NAME_BASE "gbsslave"
 #endif
+
+const char *ap_password = "qqqqqqqq";
+
+// Dynamic buffers — filled by gbs_build_device_names() using MAC address
+static char ap_ssid_buf[24];         // e.g. "gbs-AABBCC"
+static char hostname_partial_buf[24]; // e.g. "gbs-aabbcc"
+static char hostname_full_buf[32];   // e.g. "gbs-aabbcc.local"
+static char ap_info_buf[128];
+static char st_info_buf[128];
+
+const char *ap_ssid             = ap_ssid_buf;
+const char *device_hostname_full    = hostname_full_buf;
+const char *device_hostname_partial = hostname_partial_buf;
+
+static void gbs_build_device_names(void)
+{
+    uint8_t mac[6] = {0};
+    esp_efuse_mac_get_default(mac);
+    snprintf(ap_ssid_buf,          sizeof(ap_ssid_buf),          "%s-%02X%02X%02X",
+             DEVICE_NAME_BASE, mac[3], mac[4], mac[5]);
+    snprintf(hostname_partial_buf, sizeof(hostname_partial_buf), "%s-%02x%02x%02x",
+             DEVICE_NAME_BASE, mac[3], mac[4], mac[5]);
+    snprintf(hostname_full_buf,    sizeof(hostname_full_buf),    "%s.local",
+             hostname_partial_buf);
+    snprintf(ap_info_buf, sizeof(ap_info_buf),
+             "(WiFi): AP mode (SSID: %s, pass '%s'): Access '%s' in browser",
+             ap_ssid_buf, ap_password, hostname_full_buf);
+    snprintf(st_info_buf, sizeof(st_info_buf),
+             "(WiFi): Access 'http://%s:80' or 'http://%s' (or device IP) in browser",
+             hostname_partial_buf, hostname_full_buf);
+}
+
+static const char *ap_info_string = ap_info_buf;
+static const char *st_info_string = st_info_buf;
 
 AsyncWebServer server(80);
 DNSServer dnsServer;
@@ -7180,6 +7196,9 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
 
 void gbs_setup()
 {
+    // Build unique device names from MAC address (WiFi SSID, hostname, etc.)
+    gbs_build_device_names();
+
     // Initialize I2C bus before any I2C device communication
     startWire();
 
@@ -7420,7 +7439,7 @@ void gbs_setup()
     if (WiFi.status() == WL_CONNECTED) {
         // nothing
     } else if (WiFi.SSID().length() == 0) {
-        SerialM.println(FPSTR(ap_info_string));
+        SerialM.println(ap_info_string);
     } else {
         SerialM.println(F("(WiFi): still connecting.."));
         WiFi.reconnect(); // only valid for station class (ok here)
@@ -9505,10 +9524,10 @@ void startWebserver()
             MDNS.addService("http", "tcp", 80); // Add service to MDNS-SD
             MDNS.announce();
         }
-        SerialM.println(FPSTR(st_info_string));
+        SerialM.println(st_info_string);
     });
     persWM.onAp([]() {
-        SerialM.println(FPSTR(ap_info_string));
+        SerialM.println(ap_info_string);
         // add mdns announce here as well?
     });
 

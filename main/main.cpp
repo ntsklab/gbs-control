@@ -17,6 +17,9 @@
 extern void gbs_setup();
 extern void gbs_loop();
 
+// Shell (BLE serial console)
+#include "shell.h"
+
 static const char *TAG = "gbs-main";
 
 static void gbs_task(void *pvParameters)
@@ -44,6 +47,9 @@ extern "C" void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    // Initialize BLE Shell (runs on separate task)
+    shell_init();
 
     // Create the main GBS task with a large stack (main logic is stack-heavy)
     xTaskCreate(gbs_task, "gbs_task", 16384, NULL, 5, NULL);
