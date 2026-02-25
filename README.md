@@ -1,6 +1,9 @@
-# gbs-control-esp 改変ポイント（簡易まとめ）
+# gbs-control-esp32
 
-このリポジトリは `gbs-control` を ESP-IDF 環境へ移植・拡張した構成です。主要な改変点は以下です。
+This repository was created using generative AI.
+
+このリポジトリは `gbs-control` を ESP-IDF 環境 ESP32-C3ターゲットへ移植・拡張したものです。
+主要な改変点は以下です。
 
 - 実行基盤の変更: `app_main()`（ESP-IDF）から `gbs_task` を起動し、`gbs_setup()` / `gbs_loop()` を駆動
 - 制御チャネルの追加: BLEシリアルシェル（NimBLE/NUS）を独立タスクで実行し、WebUIと同等の設定操作経路を提供
@@ -23,20 +26,20 @@ idf.py flash monitor
 
 ## ドキュメント
 
-- [docs/porting_guide.md](docs/porting_guide.md) — 移植ガイド（upstream更新時の手順）
+- [docs/porting_guide.md](docs/porting_guide.md) — 移植ガイド
 - [docs/arduino_compat_layer.md](docs/arduino_compat_layer.md) — Arduino互換レイヤ詳細
 - [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md) — サードパーティライセンス一覧
 
 UML（SVG）図:
 
-- `docs/uml/project_flow.svg`（生成物）
-- `docs/uml/project_flow.puml`（編集用ソース）
+- `docs/uml/project_flow.svg`
+- `docs/uml/project_flow.puml`
 
 Arduinoコンパチレイヤ詳細:
 
-- `docs/arduino_compat_layer.md`（API変換の詳細ドキュメント）
-- `docs/uml/arduino_compat_layer.svg`（構造図・生成物）
-- `docs/uml/arduino_compat_layer.puml`（編集用ソース）
+- `docs/arduino_compat_layer.md`
+- `docs/uml/arduino_compat_layer.svg`
+- `docs/uml/arduino_compat_layer.puml`
 
 ---
 以下はオリジナル README です。
