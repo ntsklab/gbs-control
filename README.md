@@ -1,6 +1,7 @@
 # Modified gbs-control
 - Add PCB gerber
-- Modified for ESP-WROOM-02(D)
+- (Master branch):Modified for ESP-WROOM-02(D)
+- (xiao-esp32-c3 branch): Modified and add features for XIAO ESP32-C3
 
 [https://in-deep.blue/archives/1246](https://in-deep.blue/archives/1246)
 
@@ -33,3 +34,4 @@ https://www.youtube.com/watch?v=fmfR0XI5czI
 Development threads:  
 https://shmups.system11.org/viewtopic.php?f=6&t=52172   
 https://circuit-board.de/forum/index.php/Thread/15601-GBS-8220-Custom-Firmware-in-Arbeit/   
+
