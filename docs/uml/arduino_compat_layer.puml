@@ -1,0 +1,93 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Noto Sans CJK JP
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam ArrowColor #2d3748
+hide stereotype
+skinparam package<<canvas>> {
+  BackgroundColor #FFFFFF
+  BorderColor #FFFFFF
+  FontColor #FFFFFF
+}
+
+title Arduinoコンパチレイヤ変換フロー（gbs-control-esp）
+
+package " " <<canvas>> {
+
+package "Application Layer (移植対象)" {
+  component "gbs_control.cpp\n(gbs_setup/gbs_loop)" as app
+  component "PersWiFiManager.cpp" as pwm
+  component "SSD1306Wire.cpp\nsi5351mcu.cpp" as i2c_clients
+}
+
+package "Arduino Compat API Surface\ncomponents/compat/include" {
+  component "Arduino.h\n(digitalWrite/millis/delay/attachInterrupt)" as arduino_h
+  component "Wire.h\n(TwoWire)" as wire_h
+  component "ESP8266WiFi.h\n(WiFiClass)" as wifi_h
+  component "ESPAsyncWebServer.h\n(AsyncWebServer API)" as web_h
+  component "FS.h\n(SPIFFS/File/Dir)" as fs_h
+  component "ESP8266mDNS.h / ArduinoOTA.h / DNSServer.h" as net_h
+}
+
+package "Compat Implementation\ncomponents/compat" {
+  component "compat.cpp\nGPIO/Serial/WiFi/mDNS/OTA/DNS/SPIFFS" as compat_cpp
+  component "Wire.cpp\nI2C master wrapper" as wire_cpp
+  component "WebServerCompat.cpp\nesp_http_server adapter" as web_cpp
+}
+
+package "ESP-IDF APIs" {
+  component "driver/gpio" as idf_gpio
+  component "esp_timer + FreeRTOS" as idf_time
+  component "driver/uart" as idf_uart
+  component "esp_wifi + esp_netif + esp_event" as idf_wifi
+  component "esp_http_server" as idf_http
+  component "i2c_master" as idf_i2c
+  component "esp_vfs_spiffs + libc FILE" as idf_fs
+  component "mdns + lwip socket" as idf_net
+}
+
+app --> arduino_h : pinMode / digitalWrite / delay / millis
+app --> wire_h : Wire.begin(), tx/rx
+app --> wifi_h : WiFi.mode(), WiFi.begin(), WiFi.status()
+app --> web_h : server.on(), request->send()
+app --> fs_h : SPIFFS.open(), Dir
+app --> net_h : MDNS.update(), ArduinoOTA.handle(), dnsServer.processNextRequest()
+
+pwm --> wifi_h
+i2c_clients --> wire_h
+
+arduino_h --> compat_cpp
+wire_h --> wire_cpp
+wifi_h --> compat_cpp
+fs_h --> compat_cpp
+net_h --> compat_cpp
+web_h --> web_cpp
+
+compat_cpp --> idf_gpio : gpio_config / gpio_set_level / gpio_get_level
+compat_cpp --> idf_time : esp_timer_get_time / vTaskDelay
+compat_cpp --> idf_uart : uart_driver_install / uart_write_bytes
+compat_cpp --> idf_wifi : esp_wifi_* / esp_netif_*
+compat_cpp --> idf_fs : esp_vfs_spiffs_register / fopen
+compat_cpp --> idf_net : mdns_* / UDP socket recvfrom/sendto
+
+wire_cpp --> idf_i2c : i2c_new_master_bus\ni2c_master_transmit/receive/probe
+web_cpp --> idf_http : httpd_start\nhttpd_register_uri_handler
+
+note right of compat_cpp
+  互換ポリシー:
+  - 必要最小APIのみ実装
+  - 一部APIはスタブ/No-op
+  - 完全なArduino互換は目的外
+end note
+
+note bottom of app
+  gbs_control.cpp では digitalRead を
+  直接 gpio_get_level に再定義して高速化
+  (#undef/#define digitalRead)
+end note
+
+}
+
+@enduml

@@ -1,3 +1,27 @@
+# gbs-control-esp 改変ポイント（簡易まとめ）
+
+このリポジトリは `gbs-control` を ESP-IDF 環境へ移植・拡張した構成です。主要な改変点は以下です。
+
+- 実行基盤の変更: `app_main()`（ESP-IDF）から `gbs_task` を起動し、`gbs_setup()` / `gbs_loop()` を駆動
+- 制御チャネルの追加: BLEシリアルシェル（NimBLE/NUS）を独立タスクで実行し、WebUIと同等の設定操作経路を提供
+- 通信処理の整理: Webサーバー・WebSocket・mDNS・DNS・OTAを `handleWiFi()` と `startWebserver()` を中心に統合
+- ストレージ運用: SPIFFS上でユーザー設定・プリセットスロットを管理（Web API経由で保存/読込）
+- ハード制御維持: GBS8200レジスタ制御、同期監視（`runSyncWatcher()`）、プリセット適用（`applyPresets()`）の既存ロジックを継承
+
+UML（SVG）図:
+
+- `docs/uml/project_flow.svg`（生成物）
+- `docs/uml/project_flow.puml`（編集用ソース）
+
+Arduinoコンパチレイヤ詳細:
+
+- `docs/arduino_compat_layer.md`（API変換の詳細ドキュメント）
+- `docs/uml/arduino_compat_layer.svg`（構造図・生成物）
+- `docs/uml/arduino_compat_layer.puml`（編集用ソース）
+
+---
+以下はオリジナル README です。
+
 # gbs-control
 
 Documentation: https://ramapcsx2.github.io/gbs-control/

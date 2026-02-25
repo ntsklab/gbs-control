@@ -1,0 +1,90 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Noto Sans CJK JP
+skinparam componentStyle rectangle
+skinparam ArrowColor #2d3748
+skinparam packageStyle rectangle
+hide stereotype
+skinparam package<<canvas>> {
+  BackgroundColor #FFFFFF
+  BorderColor #FFFFFF
+  FontColor #FFFFFF
+}
+
+title gbs-control-esp 全体フロー（UML）
+
+package " " <<canvas>> {
+actor "User" as user
+actor "Web Browser" as browser
+actor "BLE Client" as bleclient
+
+package "ESP-IDF Runtime" {
+  component "main/main.cpp\napp_main()" as app_main
+  component "gbs_task()\n(FreeRTOS task)" as gbs_task
+}
+
+package "gbs_control component" {
+  component "gbs_setup()" as gbs_setup
+  component "gbs_loop()" as gbs_loop
+  component "startWebserver()\nHTTP / WebSocket" as web
+  component "handleWiFi()\nMDNS/DNS/OTA/WS ping" as wifi
+  component "runSyncWatcher()\nmode detect + applyPresets()" as sync
+  component "Serial command dispatcher\n(serialCommand/userCommand)" as cmd
+}
+
+package "shell + ble_serial" {
+  component "shell_init()" as shell
+  component "ble_serial_init()\nNUS GATT service" as ble
+  component "shell_ble_cmd_task()\nprocess_command()" as shelltask
+}
+
+package "Peripherals / Storage" {
+  component "GBS8200 (I2C)\nTV5725 registers" as gbschip
+  component "OLED + Rotary Encoder" as oled
+  component "SPIFFS\npreferences / slots" as spiffs
+  component "Wi-Fi STA/AP + mDNS" as wlan
+}
+
+user --> browser : HTTPアクセス
+user --> bleclient : BLEシェル接続
+
+app_main --> shell : shell_init()
+app_main --> gbs_task : xTaskCreate()
+
+gbs_task --> gbs_setup : 1回だけ実行
+
+gbs_setup --> web : startWebserver()
+gbs_setup --> spiffs : SPIFFS.begin()\n設定読込/保存
+gbs_setup --> gbschip : startWire() + 初期レジスタ設定
+gbs_setup --> oled : display.init()\nencoder ISR attach
+
+gbs_task --> gbs_loop : while(true)
+gbs_loop --> wifi : handleWiFi(0)
+gbs_loop --> sync : runSyncWatcher()
+gbs_loop --> cmd : serialCommand/userCommandを処理
+gbs_loop --> gbschip : 画像処理パラメータ更新
+
+browser --> web : /sc, /uc, /slot/*, /wifi/*
+web --> cmd : serialCommand / userCommand を設定
+web --> spiffs : プリセットslot保存/読込
+web --> wlan : 接続制御, AP/STA切替
+
+bleclient --> ble : NUS RX write
+ble --> shelltask : shell_ble_line_cb()\nqueue投入
+shelltask --> cmd : serialCommand / userCommand を設定
+shelltask --> gbschip : debug reg read/write
+
+wifi --> wlan : MDNS.update(), DNS処理
+sync --> gbschip : モード判定, applyPresets()
+
+note right of gbs_loop
+  実行ループでの主要順序:
+  1) OLED/UI更新
+  2) handleWiFi()
+  3) コマンド受付/実行
+  4) sync watcher + レジスタ最適化
+end note
+}
+
+@enduml
