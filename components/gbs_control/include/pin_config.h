@@ -10,7 +10,11 @@
  *   SDA=GPIO6(D4), SCL=GPIO7(D5)
  *   TX=GPIO21(D6), RX=GPIO20(D7)
  *
- * TODO: Adjust pin assignments below for your specific wiring.
+ * STRAPPING PINS (avoid for external signals that may be LOW at boot):
+ *   GPIO2 (D0) — must be HIGH or floating for normal boot
+ *   GPIO8 (D8) — must be HIGH or floating for normal boot
+ *   GPIO9 (D9) — LOW=download mode, HIGH=normal boot (BOOT button)
+ * See: https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/
  */
 #ifndef PIN_CONFIG_H_
 #define PIN_CONFIG_H_
@@ -20,7 +24,9 @@
 #define PIN_I2C_SCL     7    // XIAO D5 = GPIO7
 
 // ==================== Debug / VSync Input ====================
-#define PIN_DEBUG_IN    2    // XIAO D0 = GPIO2 (VSync measurement input)
+#define PIN_DEBUG_IN    20   // XIAO D7 = GPIO20 (VSync measurement input)
+                             // NOTE: GPIO2 (D0) is a strapping pin — do not use
+                             // for signals that may be LOW during chip reset.
 
 // ==================== Rotary Encoder ====================
 #define PIN_ENCODER_CLK   3  // XIAO D1 = GPIO3
@@ -43,15 +49,15 @@
 #undef D7
 #undef D8
 
-#define D0  2     // GPIO2
+#define D0  2     // GPIO2  (strapping pin — avoid)
 #define D1  PIN_I2C_SCL   // For SSD1306Wire SCL
 #define D2  PIN_I2C_SDA   // For SSD1306Wire SDA
 #define D3  PIN_ENCODER_SW
 #define D4  6
 #define D5  PIN_ENCODER_CLK
-#define D6  PIN_DEBUG_IN  // DEBUG_IN_PIN
+#define D6  PIN_DEBUG_IN  // DEBUG_IN_PIN → GPIO20
 #define D7  PIN_ENCODER_DATA
-#define D8  8
+#define D8  8     // (strapping pin — avoid)
 
 // Override SDA/SCL
 #undef SDA

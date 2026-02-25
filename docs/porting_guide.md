@@ -33,7 +33,7 @@ gbs-control-esp/
 │   │   └── src/                #   全ソースファイル
 │   ├── gbs_presets/            # ★ プリセットヘッダ (PROGMEM→通常配列)
 │   │   ├── include/            #   ntsc_*.h, pal_*.h, ofw_*.h 等
-│   │   └── gbs_presets.c       #   ダミー翻訳単位
+│   │   └── gbs_presets.c       #   ヘッダのみコンポーネントにソースが必要なため空ファイル
 │   └── ble_serial/             # ★ 新規: BLE シリアルコンソール
 │       ├── ble_serial.c        #   NimBLE NUS サービス実装
 │       └── include/ble_serial.h
@@ -284,7 +284,7 @@ upstream 末尾の `#if defined(ESP8266)` ～ `#endif` ガードを除去。
 | `components/gbs_control/include/shell.h` | 33 | 同上のヘッダ |
 | `components/ble_serial/ble_serial.c` | 443 | NimBLE NUS サービス (BLE UART) |
 | `components/ble_serial/include/ble_serial.h` | 24 | 同上のヘッダ |
-| `components/gbs_presets/gbs_presets.c` | 6 | ダミー翻訳単位 (ヘッダ群を束ねるのみ) |
+| `components/gbs_presets/gbs_presets.c` | 6 | ESP-IDFコンポーネントに必要な空ソースファイル |
 
 ## 6. Upstream 更新時の手順
 
@@ -439,10 +439,10 @@ upstream 更新で機能が増えた場合に調整が必要になりうる設�
 |---|---|---|---|
 | I2C SDA | GPIO6 | D4/SDA | GBS8200 + OLED |
 | I2C SCL | GPIO7 | D5/SCL | GBS8200 + OLED |
-| ロータリーエンコーダ CLK | GPIO2 | D0 | 入力 (プルアップ) |
-| ロータリーエンコーダ DATA | GPIO3 | D1 | 入力 (プルアップ) |
-| ロータリーエンコーダ SW | GPIO4 | D2 | 入力 (プルアップ) |
-| デバッグ入力 | GPIO21 | D6 | DEBUG_IN_PIN |
+| ロータリーエンコーダ CLK | GPIO3 | D1 | 入力 (プルアップ) |
+| ロータリーエンコーダ DATA | GPIO4 | D2 | 入力 (プルアップ) |
+| ロータリーエンコーダ SW | GPIO5 | D3 | 入力 (プルアップ) |
+| デバッグ入力 | GPIO20 | D7 | DEBUG_IN_PIN (※GPIO2はストラッピングピンのため回避) |
 
 ## 10. トラブルシューティング
 
