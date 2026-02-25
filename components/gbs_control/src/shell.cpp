@@ -107,12 +107,28 @@ static int shell_printf(const char *fmt, ...)
     char buf[256];
     va_list ap;
     va_start(ap, fmt);
+    va_list ap_copy;
+    va_copy(ap_copy, ap);
     int n = vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     if (n > 0) {
-        size_t sl = ((size_t)n < sizeof(buf)) ? (size_t)n : sizeof(buf) - 1;
-        ble_serial_send(buf, sl);
+        if ((size_t)n < sizeof(buf)) {
+            ble_serial_send(buf, (size_t)n);
+        } else {
+            size_t needed = (size_t)n + 1;
+            char *full = (char *)malloc(needed);
+            if (full) {
+                int n_full = vsnprintf(full, needed, fmt, ap_copy);
+                if (n_full > 0) {
+                    ble_serial_send(full, (size_t)n_full);
+                }
+                free(full);
+            } else {
+                ble_serial_send(buf, sizeof(buf) - 1);
+            }
+        }
     }
+    va_end(ap_copy);
     return n;
 }
 #define printf shell_printf
