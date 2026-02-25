@@ -19,6 +19,7 @@ gbs-control-esp/
 ├── CMakeLists.txt              # ESP-IDF トップレベル
 ├── partitions.csv              # パーティションテーブル (factory + spiffs)
 ├── sdkconfig.defaults          # ESP-IDF コンフィグレーション
+├── setup_deps.sh               # 外部依存ライブラリ取得スクリプト
 ├── main/
 │   └── main.cpp                # app_main() エントリポイント
 ├── components/
@@ -30,6 +31,7 @@ gbs-control-esp/
 │   │   └── WifiManager.cpp     #   WiFi 初期化
 │   ├── gbs_control/            # ★ upstream コード (変更箇所最小)
 │   │   ├── include/            #   全ヘッダファイル + 新規追加ヘッダ
+│   │   │   └── OLEDDisplayFonts_ext.h  # ※生成ファイル (.gitignore)
 │   │   └── src/                #   全ソースファイル
 │   ├── gbs_presets/            # ★ プリセットヘッダ (PROGMEM→通常配列)
 │   │   ├── include/            #   ntsc_*.h, pal_*.h, ofw_*.h 等
@@ -37,9 +39,11 @@ gbs-control-esp/
 │   └── ble_serial/             # ★ 新規: BLE シリアルコンソール
 │       ├── ble_serial.c        #   NimBLE NUS サービス実装
 │       └── include/ble_serial.h
+├── .deps/                      # ※外部ライブラリのクローン先 (.gitignore)
 └── docs/
     ├── porting_guide.md        # ← このファイル
-    └── arduino_compat_layer.md # 互換レイヤの詳細仕様
+    ├── arduino_compat_layer.md # 互換レイヤの詳細仕様
+    └── THIRD_PARTY_LICENSES.md # サードパーティライセンス一覧
 ```
 
 ## 3. Upstream から取り込むファイルの対応表
@@ -383,14 +387,24 @@ upstream で関数が追加・削除された場合、前方宣言ファイル�
 grep -nE "^(void|bool|int|uint|float|static|inline|const)" $UPSTREAM/gbs-control.ino | head -40
 ```
 
-### Step 5: ビルド・テスト
+### Step 5: 外部依存ライブラリの取得
+
+```bash
+./setup_deps.sh
+```
+
+ThingPulse OLED ライブラリから ArialMT_Plain フォントデータを取得し、
+`OLEDDisplayFonts_ext.h` を生成する。このファイルは `.gitignore` に
+含まれているため、フレッシュクローン後は必ず実行すること。
+
+### Step 6: ビルド・テスト
 
 ```bash
 idf.py build
 idf.py flash monitor
 ```
 
-### Step 6: 互換レイヤの修正（必要な場合のみ）
+### Step 7: 互換レイヤの修正（必要な場合のみ）
 
 upstream で新しい Arduino API が使われた場合、`components/compat/` に追加実装が必要。
 リンクエラーで判明するため、ビルドログを確認する。

@@ -8,6 +8,25 @@
 - ストレージ運用: SPIFFS上でユーザー設定・プリセットスロットを管理（Web API経由で保存/読込）
 - ハード制御維持: GBS8200レジスタ制御、同期監視（`runSyncWatcher()`）、プリセット適用（`applyPresets()`）の既存ロジックを継承
 
+## ビルド手順
+
+```bash
+# 1. 外部依存ライブラリの取得（初回・クリーンクローン後に必要）
+./setup_deps.sh
+
+# 2. ビルド
+idf.py build
+
+# 3. フラッシュ & モニタ
+idf.py flash monitor
+```
+
+## ドキュメント
+
+- [docs/porting_guide.md](docs/porting_guide.md) — 移植ガイド（upstream更新時の手順）
+- [docs/arduino_compat_layer.md](docs/arduino_compat_layer.md) — Arduino互換レイヤ詳細
+- [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md) — サードパーティライセンス一覧
+
 UML（SVG）図:
 
 - `docs/uml/project_flow.svg`（生成物）

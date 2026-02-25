@@ -2,8 +2,9 @@
    version 3.0.1
    https://r-downing.github.io/PersWiFiManager/
 
-   modified for inclusion in gbs-control
-   see /3rdparty/PersWiFiManager/ for original code and license
+   Modified for inclusion in gbs-control.
+   Original: https://github.com/r-downing/PersWiFiManager (MIT License)
+   See docs/THIRD_PARTY_LICENSES.md for full license text.
 */
 #ifndef PERSWIFIMANAGER_H
 #define PERSWIFIMANAGER_H

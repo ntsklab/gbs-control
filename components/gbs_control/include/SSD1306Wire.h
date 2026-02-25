@@ -137,9 +137,8 @@ private:
     uint8_t charWidth(char c);
 };
 
-// Font declarations (from OLEDMenuFonts.h or SSD1306 library fonts)
-extern const uint8_t ArialMT_Plain_10[] PROGMEM;
-extern const uint8_t ArialMT_Plain_16[] PROGMEM;
-extern const uint8_t ArialMT_Plain_24[] PROGMEM;
+// ArialMT fonts — extracted from ThingPulse library by setup_deps.sh
+// Run ./setup_deps.sh to generate OLEDDisplayFonts_ext.h
+#include "OLEDDisplayFonts_ext.h"
 
 #endif // SSD1306WIRE_H_

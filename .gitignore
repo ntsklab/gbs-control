@@ -26,3 +26,7 @@ __pycache__/
 
 # Node.js
 node_modules/
+
+# External dependencies (fetched by setup_deps.sh)
+.deps/
+components/gbs_control/include/OLEDDisplayFonts_ext.h

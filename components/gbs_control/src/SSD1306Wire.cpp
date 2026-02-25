@@ -388,32 +388,3 @@ uint16_t SSD1306Wire::getStringWidth(const String &text)
     return getStringWidth(text.c_str());
 }
 
-// ==================== Font Data ====================
-// Minimal ArialMT font data for OLED menu display
-// Format: [maxWidth, height, firstChar, numChars, ...glyph data]
-// Each glyph: [width, data bytes...] where data is column-major
-
-// ArialMT_Plain_10: 10px height font (ASCII 32-127)
-// This is a simplified 6x10 font
-const uint8_t ArialMT_Plain_10[] PROGMEM = {
-    6, // max width
-    10, // height
-    32, // first char (space)
-    96, // number of chars (32-127)
-    // Glyph data - 6 bytes per character (simplified fixed width)
-    // space
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    // ! through ~ simplified glyph data
-    // For proper rendering, replace with full ThingPulse font data
-    // This provides linking and basic display capability
-};
-
-// ArialMT_Plain_16: 16px height font (ASCII 32-127)
-const uint8_t ArialMT_Plain_16[] PROGMEM = {
-    10, // max width
-    16, // height  
-    32, // first char (space)
-    96, // number of chars (32-127)
-    // Glyph data placeholder
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
