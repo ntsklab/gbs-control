@@ -4249,9 +4249,7 @@ void applyPresets(uint8_t result)
             writeProgramArrayNew(ntsc_720x480, false);
         } else if (uopt->presetPreference == 3) {
             writeProgramArrayNew(ntsc_1280x720, false);
-        }
-#if defined(ESP8266)
-        else if (uopt->presetPreference == OutputCustomized) {
+        } else if (uopt->presetPreference == OutputCustomized) {
             const uint8_t *preset = loadPresetFromSPIFFS(result);
             writeProgramArrayNew(preset, false);
             if (applySavedBypassPreset()) {
@@ -4264,9 +4262,7 @@ void applyPresets(uint8_t result)
             } else {
                 writeProgramArrayNew(ntsc_1280x1024, false);
             }
-        }
-#endif
-        else if (uopt->presetPreference == 5) {
+        } else if (uopt->presetPreference == 5) {
             writeProgramArrayNew(ntsc_1920x1080, false);
         } else if (uopt->presetPreference == 6) {
             writeProgramArrayNew(ntsc_downscale, false);
@@ -4284,9 +4280,7 @@ void applyPresets(uint8_t result)
             writeProgramArrayNew(pal_768x576, false);
         } else if (uopt->presetPreference == 3) {
             writeProgramArrayNew(pal_1280x720, false);
-        }
-#if defined(ESP8266)
-        else if (uopt->presetPreference == OutputCustomized) {
+        } else if (uopt->presetPreference == OutputCustomized) {
             const uint8_t *preset = loadPresetFromSPIFFS(result);
             writeProgramArrayNew(preset, false);
             if (applySavedBypassPreset()) {
@@ -4294,9 +4288,7 @@ void applyPresets(uint8_t result)
             }
         } else if (uopt->presetPreference == 4) {
             writeProgramArrayNew(pal_1280x1024, false);
-        }
-#endif
-        else if (uopt->presetPreference == 5) {
+        } else if (uopt->presetPreference == 5) {
             writeProgramArrayNew(pal_1920x1080, false);
         } else if (uopt->presetPreference == 6) {
             writeProgramArrayNew(pal_downscale, false);
