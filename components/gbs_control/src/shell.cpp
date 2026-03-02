@@ -27,6 +27,8 @@
 #include <Wire.h>
 #include "tv5725.h"
 #include "options.h"
+#include "slot.h"
+#include "FS.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -48,6 +50,10 @@ extern struct runTimeOptions *rto;
 extern struct userOptions *uopt;
 extern char serialCommand;
 extern char userCommand;
+extern String slotIndexMap;
+extern SPIFFSClass SPIFFS;
+extern void savePresetToSPIFFS();
+extern void saveUserPrefs();
 
 /* GBS I2C address (7-bit) */
 #define GBS_I2C_ADDR GBS_ADDR
@@ -209,6 +215,12 @@ static void print_help_root(void)
         "  scale <l|r|u|d>      Scale image\r\n"
         "  border <l|r|u|d>     Adjust display borders\r\n"
         "\r\n"
+        "Slot management [saved]:\r\n"
+        "  slot list             List saved slots\r\n"
+        "  slot set <name>       Select slot by name\r\n"
+        "  slot save <name>      Save current state to slot\r\n"
+        "  slot remove           Remove current slot\r\n"
+        "\r\n"
         "Debug:\r\n"
         "  probe                Probe GBS8200 I2C\r\n"
         "  reg <read|write>     Register access\r\n"
@@ -258,14 +270,17 @@ static void print_help_set(void)
         "  set syncwatcher      Sync watcher\r\n"
         "  set freeze           Freeze capture\r\n"
         "\r\n"
-        "Picture [preset] (save via 'set custom save'):\r\n"
+        "Picture [preset] (save via 'slot save <name>'):\r\n"
         "  set brightness <+|-> Adjust brightness\r\n"
         "  set contrast <+|->   Adjust contrast\r\n"
         "  set gain <+|->       ADC gain\r\n"
         "  set color <reset|info> Color settings\r\n"
         "\r\n"
-        "Preset management:\r\n"
-        "  set custom <load|save>  Custom preset\r\n"
+        "Slot management:\r\n"
+        "  slot list               List saved slots\r\n"
+        "  slot set <name>         Select a slot by name\r\n"
+        "  slot save <name>        Save current state to slot\r\n"
+        "  slot remove             Remove current slot\r\n"
         "\r\n"
         "System:\r\n"
         "  set defaults         Reset all + reboot\r\n"
@@ -468,9 +483,8 @@ static void cmd_set(int ntok, char *tok[])
         /* 21 */ "contrast",
         /* 22 */ "gain",
         /* 23 */ "color",
-        /* 24 */ "custom",
-        /* 25 */ "defaults",
-        /* 26 */ "ota",
+        /* 24 */ "defaults",
+        /* 25 */ "ota",
     };
     int ki = resolve_abbrev(tok[1], keys, ARRAY_SIZE(keys));
     if (ki == -2) { print_ambiguous(tok[1], keys, ARRAY_SIZE(keys)); return; }
@@ -554,18 +568,245 @@ static void cmd_set(int ntok, char *tok[])
         return;
     }
 
-    /* --- Custom preset --- */
-    if (str_eq(key, "custom")) {
-        if (ntok < 3) { printf("Usage: set custom <load|save>\r\n"); return; }
-        if      (str_eq(tok[2], "load")) send_uc('3', "[saved] Custom preset load");
-        else if (str_eq(tok[2], "save")) send_uc('4', "Custom preset saved to SPIFFS");
-        else printf("Unknown: %s (load|save)\r\n", tok[2]);
-        return;
-    }
-
     /* --- System --- */
     if (str_eq(key, "defaults")) { send_uc('1', "Reset to defaults + reboot"); return; }
     if (str_eq(key, "ota"))      { send_sc('c', "[temp] OTA update enabled"); return; }
+}
+
+/* ==========================================================
+ * SLOT — preset slot management
+ * ========================================================== */
+static bool slot_read_meta(SlotMetaArray &obj)
+{
+    File f = SPIFFS.open(SLOTS_FILE, "r");
+    if (!f) return false;
+    f.read((uint8_t *)&obj, sizeof(obj));
+    f.close();
+    return true;
+}
+
+static bool slot_write_meta(const SlotMetaArray &obj)
+{
+    File f = SPIFFS.open(SLOTS_FILE, "w");
+    if (!f) return false;
+    f.write((const uint8_t *)&obj, sizeof(obj));
+    f.close();
+    return true;
+}
+
+static void slot_init_meta(SlotMetaArray &obj)
+{
+    for (int i = 0; i < SLOTS_TOTAL; i++) {
+        obj.slot[i].slot = i;
+        obj.slot[i].presetID = 0;
+        obj.slot[i].scanlines = 0;
+        obj.slot[i].scanlinesStrength = 0;
+        obj.slot[i].wantVdsLineFilter = 0;
+        obj.slot[i].wantStepResponse = 1;
+        obj.slot[i].wantPeaking = 1;
+        strncpy(obj.slot[i].name, EMPTY_SLOT_NAME, 25);
+    }
+}
+
+static int slot_find_by_name(const SlotMetaArray &obj, const char *name)
+{
+    for (int i = 0; i < SLOTS_TOTAL; i++) {
+        if (strcmp(EMPTY_SLOT_NAME, obj.slot[i].name) == 0 || !strlen(obj.slot[i].name))
+            continue;
+        // trim trailing spaces for comparison
+        char trimmed[26];
+        strncpy(trimmed, obj.slot[i].name, 25);
+        trimmed[25] = '\0';
+        // right-trim
+        int len = strlen(trimmed);
+        while (len > 0 && trimmed[len-1] == ' ') trimmed[--len] = '\0';
+        if (strcasecmp(trimmed, name) == 0) return i;
+    }
+    return -1;
+}
+
+static int slot_find_first_empty(const SlotMetaArray &obj)
+{
+    for (int i = 0; i < SLOTS_TOTAL; i++) {
+        if (strcmp(EMPTY_SLOT_NAME, obj.slot[i].name) == 0 || !strlen(obj.slot[i].name))
+            return i;
+    }
+    return -1;
+}
+
+static void cmd_slot(int ntok, char *tok[])
+{
+    if (ntok < 2) {
+        printf("Usage: slot <list|set|save|remove>\r\n");
+        return;
+    }
+
+    /* --- slot list --- */
+    if (str_eq(tok[1], "list")) {
+        SlotMetaArray obj;
+        if (!slot_read_meta(obj)) {
+            printf("No slots file. Save a slot first.\r\n");
+            return;
+        }
+        int count = 0;
+        int activeIdx = slotIndexMap.indexOf(uopt->presetSlot);
+        printf("\r\n  # | Slot | Name\r\n");
+        printf("----+------+-------------------------\r\n");
+        for (int i = 0; i < SLOTS_TOTAL; i++) {
+            if (strcmp(EMPTY_SLOT_NAME, obj.slot[i].name) == 0 || !strlen(obj.slot[i].name))
+                continue;
+            char marker = (i == activeIdx) ? '*' : ' ';
+            printf(" %c%d | %c    | %s\r\n", marker, i, (char)slotIndexMap[i], obj.slot[i].name);
+            count++;
+        }
+        if (count == 0) printf("  (no presets saved)\r\n");
+        printf("\r\n  Active slot: %c (presetSlot=0x%02X)\r\n\r\n",
+               (char)uopt->presetSlot, uopt->presetSlot);
+        return;
+    }
+
+    /* --- slot set <name> --- */
+    if (str_eq(tok[1], "set")) {
+        if (ntok < 3) { printf("Usage: slot set <name>\r\n"); return; }
+        SlotMetaArray obj;
+        if (!slot_read_meta(obj)) {
+            printf("No slots file.\r\n"); return;
+        }
+        int idx = slot_find_by_name(obj, tok[2]);
+        if (idx < 0) {
+            printf("Slot '%s' not found. Use 'slot list'.\r\n", tok[2]);
+            return;
+        }
+        uopt->presetSlot = (uint8_t)slotIndexMap[idx];
+        uopt->presetPreference = OutputCustomized;
+        saveUserPrefs();
+        printf("Slot set to '%s' (index %d, char '%c')\r\n",
+               obj.slot[idx].name, idx, (char)slotIndexMap[idx]);
+        // load the custom preset
+        send_uc('3', "Loading custom preset...");
+        return;
+    }
+
+    /* --- slot save <name> --- */
+    if (str_eq(tok[1], "save")) {
+        if (ntok < 3) { printf("Usage: slot save <name>\r\n"); return; }
+        const char *name = tok[2];
+        if (strlen(name) > 24) {
+            printf("Name too long (max 24 chars)\r\n"); return;
+        }
+
+        SlotMetaArray obj;
+        if (!slot_read_meta(obj)) {
+            slot_init_meta(obj);
+        }
+
+        // Check if name already exists -> update, else find empty slot
+        int idx = slot_find_by_name(obj, name);
+        if (idx < 0) {
+            idx = slot_find_first_empty(obj);
+            if (idx < 0) {
+                printf("All %d slots full. Remove one first.\r\n", SLOTS_TOTAL);
+                return;
+            }
+        }
+
+        // Fill slot metadata
+        char padded[25];
+        memset(padded, ' ', 24);
+        padded[24] = '\0';
+        strncpy(padded, name, strlen(name));  // copy name without null
+        strncpy(obj.slot[idx].name, padded, 25);
+        obj.slot[idx].slot = idx;
+        obj.slot[idx].presetID = rto->presetID;
+        obj.slot[idx].scanlines = uopt->wantScanlines;
+        obj.slot[idx].scanlinesStrength = uopt->scanlineStrength;
+        obj.slot[idx].wantVdsLineFilter = uopt->wantVdsLineFilter;
+        obj.slot[idx].wantStepResponse = uopt->wantStepResponse;
+        obj.slot[idx].wantPeaking = uopt->wantPeaking;
+
+        if (!slot_write_meta(obj)) {
+            printf("Failed to write slots file\r\n"); return;
+        }
+
+        // Set this slot as active
+        uopt->presetSlot = (uint8_t)slotIndexMap[idx];
+        uopt->presetPreference = OutputCustomized;
+        saveUserPrefs();
+
+        // Save register dump
+        savePresetToSPIFFS();
+
+        printf("Slot '%s' saved (index %d, char '%c'), registers saved.\r\n",
+               name, idx, (char)slotIndexMap[idx]);
+        return;
+    }
+
+    /* --- slot remove --- */
+    if (str_eq(tok[1], "remove")) {
+        int activeIdx = slotIndexMap.indexOf(uopt->presetSlot);
+        if (activeIdx < 0) {
+            printf("No active slot to remove.\r\n"); return;
+        }
+        SlotMetaArray obj;
+        if (!slot_read_meta(obj)) {
+            printf("No slots file.\r\n"); return;
+        }
+        if (strcmp(EMPTY_SLOT_NAME, obj.slot[activeIdx].name) == 0) {
+            printf("Current slot is already empty.\r\n"); return;
+        }
+
+        char oldName[26];
+        strncpy(oldName, obj.slot[activeIdx].name, 25);
+        oldName[25] = '\0';
+
+        // Remove preset files for this slot
+        char slotChar = (char)uopt->presetSlot;
+        String sc(slotChar);
+        SPIFFS.remove("/preset_ntsc." + sc);
+        SPIFFS.remove("/preset_pal." + sc);
+        SPIFFS.remove("/preset_ntsc_480p." + sc);
+        SPIFFS.remove("/preset_pal_576p." + sc);
+        SPIFFS.remove("/preset_ntsc_720p." + sc);
+        SPIFFS.remove("/preset_ntsc_1080p." + sc);
+        SPIFFS.remove("/preset_medium_res." + sc);
+        SPIFFS.remove("/preset_vga_upscale." + sc);
+        SPIFFS.remove("/preset_unknown." + sc);
+
+        // Shift subsequent slots down (same as WebUI)
+        uint8_t loopCount = 0;
+        uint8_t flag = 1;
+        while (flag != 0) {
+            Ascii8 cur = slotIndexMap[activeIdx + loopCount];
+            Ascii8 nxt = slotIndexMap[activeIdx + loopCount + 1];
+            flag = 0;
+            String cs((char)cur), ns((char)nxt);
+            flag += SPIFFS.rename("/preset_ntsc." + ns, "/preset_ntsc." + cs);
+            flag += SPIFFS.rename("/preset_pal." + ns, "/preset_pal." + cs);
+            flag += SPIFFS.rename("/preset_ntsc_480p." + ns, "/preset_ntsc_480p." + cs);
+            flag += SPIFFS.rename("/preset_pal_576p." + ns, "/preset_pal_576p." + cs);
+            flag += SPIFFS.rename("/preset_ntsc_720p." + ns, "/preset_ntsc_720p." + cs);
+            flag += SPIFFS.rename("/preset_ntsc_1080p." + ns, "/preset_ntsc_1080p." + cs);
+            flag += SPIFFS.rename("/preset_medium_res." + ns, "/preset_medium_res." + cs);
+            flag += SPIFFS.rename("/preset_vga_upscale." + ns, "/preset_vga_upscale." + cs);
+            flag += SPIFFS.rename("/preset_unknown." + ns, "/preset_unknown." + cs);
+
+            obj.slot[activeIdx + loopCount].slot = obj.slot[activeIdx + loopCount + 1].slot;
+            obj.slot[activeIdx + loopCount].presetID = obj.slot[activeIdx + loopCount + 1].presetID;
+            obj.slot[activeIdx + loopCount].scanlines = obj.slot[activeIdx + loopCount + 1].scanlines;
+            obj.slot[activeIdx + loopCount].scanlinesStrength = obj.slot[activeIdx + loopCount + 1].scanlinesStrength;
+            obj.slot[activeIdx + loopCount].wantVdsLineFilter = obj.slot[activeIdx + loopCount + 1].wantVdsLineFilter;
+            obj.slot[activeIdx + loopCount].wantStepResponse = obj.slot[activeIdx + loopCount + 1].wantStepResponse;
+            obj.slot[activeIdx + loopCount].wantPeaking = obj.slot[activeIdx + loopCount + 1].wantPeaking;
+            strncpy(obj.slot[activeIdx + loopCount].name, obj.slot[activeIdx + loopCount + 1].name, 25);
+            loopCount++;
+        }
+
+        slot_write_meta(obj);
+        printf("Slot '%s' removed.\r\n", oldName);
+        return;
+    }
+
+    printf("Unknown: %s (list|set|save|remove)\r\n", tok[1]);
 }
 
 /* ==========================================================
@@ -678,9 +919,11 @@ static int common_pfx_len(const char *const m[], int n)
 static const char *const s_top_opts[] = {
     "help", "set", "show",
     "move", "scale", "border",
+    "slot",
     "probe", "reg", "dump",
     "log", "sc", "uc", "info", "reboot"
 };
+static const char *const s_slot_opts[] = { "list", "set", "save", "remove" };
 
 static const char *const s_set_keys[] = {
     "reso", "output", "passthrough",
@@ -689,12 +932,11 @@ static const char *const s_set_keys[] = {
     "autogain", "matched", "upscaling", "deint",
     "adcfilter", "oversample", "syncwatcher", "freeze",
     "brightness", "contrast", "gain", "color",
-    "custom", "defaults", "ota"
+    "defaults", "ota"
 };
 
 static const char *const s_reso_opts[] = { "960p", "480p", "720p", "1024p", "1080p", "downscale" };
 static const char *const s_deint_opts[] = { "bob", "ma" };
-static const char *const s_custom_opts[] = { "load", "save" };
 static const char *const s_color_opts[] = { "reset", "info" };
 static const char *const s_pm_opts[] = { "+", "-" };
 static const char *const s_dir_opts[] = { "l", "r", "u", "d" };
@@ -752,10 +994,6 @@ static bool get_completion_ctx(const char *line, int len,
                 *opts = s_deint_opts; *cnt = ARRAY_SIZE(s_deint_opts);
                 *prefix = sub_pfx; return true;
             }
-            if (str_eq(k, "custom")) {
-                *opts = s_custom_opts; *cnt = ARRAY_SIZE(s_custom_opts);
-                *prefix = sub_pfx; return true;
-            }
             if (str_eq(k, "color")) {
                 *opts = s_color_opts; *cnt = ARRAY_SIZE(s_color_opts);
                 *prefix = sub_pfx; return true;
@@ -805,6 +1043,15 @@ static bool get_completion_ctx(const char *line, int len,
     if (str_eq(cmd, "move") || str_eq(cmd, "scale") || str_eq(cmd, "border")) {
         *opts = s_dir_opts; *cnt = ARRAY_SIZE(s_dir_opts);
         *prefix = (nt == 1 || trail) ? "" : tk[1]; return true;
+    }
+
+    /* ---- slot ---- */
+    if (str_eq(cmd, "slot")) {
+        if ((nt == 1 && trail) || (nt == 2 && !trail)) {
+            *opts = s_slot_opts; *cnt = ARRAY_SIZE(s_slot_opts);
+            *prefix = (nt == 2) ? tk[1] : ""; return true;
+        }
+        return false;
     }
 
     return false;
@@ -905,6 +1152,7 @@ static void process_command(char *line)
     enum {
         TOP_HELP, TOP_SET, TOP_SHOW,
         TOP_MOVE, TOP_SCALE, TOP_BORDER,
+        TOP_SLOT,
         TOP_PROBE, TOP_REG, TOP_DUMP,
         TOP_LOG, TOP_SC, TOP_UC, TOP_INFO, TOP_REBOOT
     };
@@ -942,6 +1190,9 @@ static void process_command(char *line)
     case TOP_MOVE:   ntok >= 2 ? cmd_move(tok[1])   : (void)printf("Usage: move <l|r|u|d>\r\n"); break;
     case TOP_SCALE:  ntok >= 2 ? cmd_scale(tok[1])  : (void)printf("Usage: scale <l|r|u|d>\r\n"); break;
     case TOP_BORDER: ntok >= 2 ? cmd_border(tok[1]) : (void)printf("Usage: border <l|r|u|d>\r\n"); break;
+
+    /* Slot */
+    case TOP_SLOT:   cmd_slot(ntok, tok); break;
 
     /* Debug */
     case TOP_PROBE:  cmd_probe(); break;
