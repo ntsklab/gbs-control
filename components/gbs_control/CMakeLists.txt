@@ -10,6 +10,7 @@ idf_component_register(
         "src/OSDManager.cpp"
         "src/PersWiFiManager.cpp"
         "src/shell.cpp"
+        "src/geometry_buttons.cpp"
     INCLUDE_DIRS "include"
     REQUIRES compat gbs_presets esp_http_server ble_serial
 )

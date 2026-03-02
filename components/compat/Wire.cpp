@@ -6,13 +6,22 @@
 
 #include "Wire.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 
-// Default SDA/SCL pins for ESP32-C3 if not defined
+// Default SDA/SCL pins — must match XIAO board GPIO mapping
 #ifndef SDA
-#define SDA 6
+  #if defined(CONFIG_IDF_TARGET_ESP32C6)
+    #define SDA 22   // XIAO ESP32-C6 D4 = GPIO22
+  #else
+    #define SDA 6    // XIAO ESP32-C3 D4 = GPIO6
+  #endif
 #endif
 #ifndef SCL
-#define SCL 7
+  #if defined(CONFIG_IDF_TARGET_ESP32C6)
+    #define SCL 23   // XIAO ESP32-C6 D5 = GPIO23
+  #else
+    #define SCL 7    // XIAO ESP32-C3 D5 = GPIO7
+  #endif
 #endif
 #include <string.h>
 

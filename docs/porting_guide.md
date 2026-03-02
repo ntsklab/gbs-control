@@ -8,9 +8,13 @@ Upstream (`ramapcsx2/gbs-control`) が更新された際に再移植を行うた
 |------|------|
 | Upstream リポジトリ | https://github.com/ramapcsx2/gbs-control |
 | ベースコミット | `e4e317a` — *Fix bugs introduce in previous merged PRs (#554)* |
-| ターゲット | Seeed XIAO ESP32-C3 (RISC-V, 4MB Flash, WiFi+BLE) |
+| ターゲット | Seeed XIAO ESP32-C3 / ESP32-C6 (RISC-V, 4MB Flash, WiFi+BLE) |
 | フレームワーク | ESP-IDF v5.x (Arduino フレームワーク不使用) |
 | 移植方針 | upstream コードを最小限の変更で動作させる。Arduino API は互換レイヤで吸収。 |
+
+> **ターゲットの切り替え**: `idf.py set-target esp32c3` または `idf.py set-target esp32c6` で
+> ビルドターゲットを切り替えます。`pin_config.h` がターゲットに応じた GPIO マッピングを
+> 自動選択します。
 
 ## 2. プロジェクト構成
 
@@ -137,7 +141,7 @@ const int pin_clk = 14;   // D5 = GPIO14
 const int pin_data = 13;  // D7 = GPIO13
 const int pin_switch = 0; // D3 = GPIO0
 
-// After (XIAO ESP32-C3):
+// After (ESP32-C3/C6 共通):
 SSD1306Wire display(0x3c, PIN_I2C_SDA, PIN_I2C_SCL);
 const int pin_clk = PIN_ENCODER_CLK;
 const int pin_data = PIN_ENCODER_DATA;
@@ -278,7 +282,7 @@ upstream 末尾の `#if defined(ESP8266)` ～ `#endif` ガードを除去。
 |---|---|---|
 | `main/main.cpp` | ~60 | ESP-IDF エントリポイント。NVS初期化 → BLE shell起動 → gbs_task作成 |
 | `components/compat/` (全体) | ~3070 | Arduino 互換レイヤ。詳細は `docs/arduino_compat_layer.md` |
-| `components/gbs_control/include/pin_config.h` | 66 | XIAO ESP32-C3 用ピン定義 |
+| `components/gbs_control/include/pin_config.h` | 66 | XIAO ESP32-C3/C6 用ピン定義 (自動選択) |
 | `components/gbs_control/include/gbs_forward_decls.h` | 151 | .ino 自動前方宣言の代替 |
 | `components/gbs_control/include/SSD1306Wire.h` | 145 | SSD1306 OLED ドライバ (I2C) |
 | `components/gbs_control/src/SSD1306Wire.cpp` | 419 | 同上の実装 |
@@ -443,11 +447,13 @@ upstream 更新で機能が増えた場合に調整が必要になりうる設�
 | `CONFIG_COMPILER_CXX_RTTI` | y | dynamic_cast 等 |
 | `CONFIG_BT_NIMBLE_ENABLED` | y | BLE シェル |
 | `CONFIG_ESP_MAIN_TASK_STACK_SIZE` | 8192 | gbs_task は別途 16384 で作成 |
-| `CONFIG_ESPTOOLPY_FLASHSIZE_4MB` | y | XIAO ESP32-C3 のFlashサイズ |
+| `CONFIG_ESPTOOLPY_FLASHSIZE_4MB` | y | XIAO ESP32-C3/C6 のFlashサイズ |
 
-## 9. ハードウェア接続 (XIAO ESP32-C3)
+## 9. ハードウェア接続
 
-`pin_config.h` で定義:
+`pin_config.h` でターゲットごとに GPIO マッピングを自動切り替え。
+
+### XIAO ESP32-C3
 
 | 機能 | GPIO | XIAO ピン | 備考 |
 |---|---|---|---|
@@ -456,7 +462,23 @@ upstream 更新で機能が増えた場合に調整が必要になりうる設�
 | ロータリーエンコーダ CLK | GPIO3 | D1 | 入力 (プルアップ) |
 | ロータリーエンコーダ DATA | GPIO4 | D2 | 入力 (プルアップ) |
 | ロータリーエンコーダ SW | GPIO5 | D3 | 入力 (プルアップ) |
-| デバッグ入力 | GPIO20 | D7 | DEBUG_IN_PIN (※GPIO2はストラッピングピンのため回避) |
+| デバッグ入力 | GPIO2 | D0 | DEBUG_IN_PIN (※ストラッピングピン — 注意) |
+
+### XIAO ESP32-C6
+
+| 機能 | GPIO | XIAO ピン | 備考 |
+|---|---|---|---|
+| I2C SDA | GPIO22 | D4/SDA | GBS8200 + OLED |
+| I2C SCL | GPIO23 | D5/SCL | GBS8200 + OLED |
+| ロータリーエンコーダ CLK | GPIO1 | D1 | 入力 (プルアップ) |
+| ロータリーエンコーダ DATA | GPIO2 | D2 | 入力 (プルアップ) |
+| ロータリーエンコーダ SW | GPIO21 | D3 | 入力 (プルアップ) |
+| デバッグ入力 | GPIO0 | D0 | DEBUG_IN_PIN |
+| ジオメトリボタン UP | GPIO18 | D10 | Active LOW |
+| ジオメトリボタン DOWN | GPIO20 | D9 | Active LOW |
+| ジオメトリボタン LEFT | GPIO19 | D8 | Active LOW |
+| ジオメトリボタン RIGHT | GPIO17 | D7 | Active LOW |
+| LED | GPIO15 | — | User LED |
 
 ## 10. トラブルシューティング
 

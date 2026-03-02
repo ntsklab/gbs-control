@@ -1,8 +1,8 @@
-# gbs-control-esp32
+# gbs-control-esp
 
-This repository was created using generative AI.
+このリポジトリは `gbs-control` を ESP-IDF 環境へ移植・拡張したものです。
+サポート対象ターゲット: **XIAO ESP32-C3** / **XIAO ESP32-C6** (RISC-V)
 
-このリポジトリは `gbs-control` を ESP-IDF 環境 ESP32-C3ターゲットへ移植・拡張したものです。
 主要な改変点は以下です。
 
 - 実行基盤の変更: `app_main()`（ESP-IDF）から `gbs_task` を起動し、`gbs_setup()` / `gbs_loop()` を駆動
@@ -17,12 +17,18 @@ This repository was created using generative AI.
 # 1. 外部依存ライブラリの取得（初回・クリーンクローン後に必要）
 ./setup_deps.sh
 
-# 2. ビルド
+# 2. ターゲットの設定（初回 or ターゲット変更時）
+idf.py set-target esp32c6   # または esp32c3
+
+# 3. ビルド
 idf.py build
 
-# 3. フラッシュ & モニタ
+# 4. フラッシュ & モニタ
 idf.py flash monitor
 ```
+
+> **Note:** `idf.py set-target` を実行すると `build/` と `sdkconfig` がリセットされます。
+> ターゲット変更時は再度 `idf.py build` を実行してください。
 
 ## ドキュメント
 

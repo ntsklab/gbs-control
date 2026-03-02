@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include "Arduino.h"
 
+// Global command variables (set by WebUI, Serial, or GPIO buttons;
+// processed in gbs_loop main context)
+extern char serialCommand;
+
 uint8_t getMovingAverage(uint8_t item);
 void externalClockGenResetClock();
 void externalClockGenSyncInOutRate();

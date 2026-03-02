@@ -160,7 +160,7 @@
 ## 7. 拡張ポイント（将来）
 
 - `ArduinoOTA` を `esp_https_ota` ベースで実装
-- `analogRead()` の ESP32-C3 ADC 対応
+- `analogRead()` の ESP32-C3/C6 ADC 対応
 - `WiFi` イベントコールバック（`onStationModeDisconnected` など）の実体化
 - `WebServerCompat` の upload/body ハンドリングの互換性向上
 
