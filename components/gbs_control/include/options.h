@@ -36,6 +36,7 @@ struct userOptions
     uint8_t wantFullHeight;
     uint8_t enableCalibrationADC;
     uint8_t scanlineStrength;
+    uint8_t enableRotaryEncoder;
 };
 
 

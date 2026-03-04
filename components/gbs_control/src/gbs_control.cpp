@@ -21,6 +21,7 @@
 #include "ofw_RGBS.h"
 #include "options.h"
 #include "slot.h"
+#include "geometry_buttons.h"
 
 #include <Wire.h>
 #include "tv5725.h"
@@ -42,6 +43,9 @@ SSD1306Wire display(0x3c, PIN_I2C_SDA, PIN_I2C_SCL); // I2C address & pins from 
 const int pin_clk = PIN_ENCODER_CLK;       // Rotary encoder CLK
 const int pin_data = PIN_ENCODER_DATA;     // Rotary encoder DATA
 const int pin_switch = PIN_ENCODER_SW;     // Rotary encoder SWITCH
+
+#define INPUT_MODE_ROTARY   1
+#define INPUT_MODE_GEOMETRY 0
 
 
 #if USE_NEW_OLED_MENU
@@ -215,7 +219,7 @@ char userCommand;               // Serial / Web Server commands
 static uint8_t lastSegment = 0xFF; // GBS segment for direct access
 //uint8_t globalDelay; // used for dev / debug
 
-#if defined(ESP8266) || defined(ESP32) || defined(ESP32C3) || defined(ESP_PLATFORM)
+#if defined(ESP8266) || defined(ESP_PLATFORM)
 // serial mirror class for websocket logs
 class SerialMirror : public Stream
 {
@@ -7108,6 +7112,7 @@ void loadDefaultUserOptions()
     uopt->enableCalibrationADC = 1;          // #17
     uopt->scanlineStrength = 0x30;           // #18
     uopt->disableExternalClockGenerator = 0; // #19
+    uopt->enableRotaryEncoder = INPUT_MODE_ROTARY;
 }
 
 //RF_PRE_INIT() {
@@ -7186,6 +7191,37 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
 }
 #endif
 
+static bool rotaryEncoderEnabled(void)
+{
+    return uopt->enableRotaryEncoder == INPUT_MODE_ROTARY;
+}
+
+static void applyInputModeFromPrefs(void)
+{
+    detachInterrupt(digitalPinToInterrupt(pin_clk));
+    detachInterrupt(digitalPinToInterrupt(pin_switch));
+
+    if (rotaryEncoderEnabled()) {
+        pinMode(pin_clk, INPUT_PULLUP);
+        pinMode(pin_data, INPUT_PULLUP);
+        pinMode(pin_switch, INPUT_PULLUP);
+
+#if USE_NEW_OLED_MENU
+        attachInterrupt(digitalPinToInterrupt(pin_clk), isrRotaryEncoderRotateForNewMenu, FALLING);
+        attachInterrupt(digitalPinToInterrupt(pin_switch), isrRotaryEncoderPushForNewMenu, FALLING);
+#else
+        attachInterrupt(digitalPinToInterrupt(pin_clk), isrRotaryEncoder, FALLING);
+#endif
+        SerialM.println(F("Input mode: Rotary Encoder"));
+    } else {
+        pinMode(pin_clk, INPUT);
+        pinMode(pin_data, INPUT);
+        pinMode(pin_switch, INPUT);
+        geometry_buttons_init();
+        SerialM.println(F("Input mode: Geometry + Mode LED"));
+    }
+}
+
 void gbs_setup()
 {
     // Build unique device names from MAC address (WiFi SSID, hostname, etc.)
@@ -7197,18 +7233,9 @@ void gbs_setup()
     display.init();                 //inits OLED on I2C bus
     display.flipScreenVertically(); //orientation fix for OLED
 
-    pinMode(pin_clk, INPUT_PULLUP);
-    pinMode(pin_data, INPUT_PULLUP);
-    pinMode(pin_switch, INPUT_PULLUP);
-
 #if USE_NEW_OLED_MENU
-    attachInterrupt(digitalPinToInterrupt(pin_clk), isrRotaryEncoderRotateForNewMenu, FALLING);
-    attachInterrupt(digitalPinToInterrupt(pin_switch), isrRotaryEncoderPushForNewMenu, FALLING);
     initOLEDMenu();
     initOSD();
-#else
-    // ISR TO PIN
-    attachInterrupt(digitalPinToInterrupt(pin_clk), isrRotaryEncoder, FALLING);
 #endif
 
     rto->webServerEnabled = true;
@@ -7408,9 +7435,20 @@ void gbs_setup()
             if (uopt->disableExternalClockGenerator > 1)
                 uopt->disableExternalClockGenerator = 0;
 
+            int rotaryMode = f.read();
+            if (rotaryMode == -1) {
+                uopt->enableRotaryEncoder = INPUT_MODE_ROTARY; // backward compatibility
+            } else {
+                uopt->enableRotaryEncoder = (uint8_t)(rotaryMode - '0');
+                if (uopt->enableRotaryEncoder > 1)
+                    uopt->enableRotaryEncoder = INPUT_MODE_ROTARY;
+            }
+
             f.close();
         }
     }
+
+    applyInputModeFromPrefs();
 
 
     GBS::PAD_CKIN_ENZ::write(1); // disable to prevent startup spike damage
@@ -9055,7 +9093,15 @@ void handleType2Command(char argument)
                 SerialM.println((uint8_t)(f.read() - '0'));
                 SerialM.print(F("step response = "));
                 SerialM.println((uint8_t)(f.read() - '0'));
+                SerialM.print(F("full height = "));
+                SerialM.println((uint8_t)(f.read() - '0'));
+                SerialM.print(F("enable calibration adc = "));
+                SerialM.println((uint8_t)(f.read() - '0'));
+                SerialM.print(F("scanline strength = "));
+                SerialM.println((uint8_t)(f.read() - '0'));
                 SerialM.print(F("disable external clock generator = "));
+                SerialM.println((uint8_t)(f.read() - '0'));
+                SerialM.print(F("rotary encoder enabled = "));
                 SerialM.println((uint8_t)(f.read() - '0'));
 
                 f.close();
@@ -9316,6 +9362,24 @@ void handleType2Command(char argument)
                 SerialM.println("enabled");
             }
             saveUserPrefs();
+            break;
+        case 'I':
+            if (uopt->enableRotaryEncoder != INPUT_MODE_ROTARY) {
+                uopt->enableRotaryEncoder = INPUT_MODE_ROTARY;
+                saveUserPrefs();
+            }
+            SerialM.println(F("Input mode -> Rotary Encoder (restarting)"));
+            delay(60);
+            ESP.reset();
+            break;
+        case 'J':
+            if (uopt->enableRotaryEncoder != INPUT_MODE_GEOMETRY) {
+                uopt->enableRotaryEncoder = INPUT_MODE_GEOMETRY;
+                saveUserPrefs();
+            }
+            SerialM.println(F("Input mode -> Geometry + Mode LED (restarting)"));
+            delay(60);
+            ESP.reset();
             break;
         case 'z':
             // sog slicer level
@@ -10192,6 +10256,7 @@ void saveUserPrefs()
     f.write(uopt->enableCalibrationADC + '0');          // #17
     f.write(uopt->scanlineStrength + '0');              // #18
     f.write(uopt->disableExternalClockGenerator + '0'); // #19
+    f.write(uopt->enableRotaryEncoder + '0');
 
 
     f.close();

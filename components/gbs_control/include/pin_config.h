@@ -48,6 +48,10 @@
 #define PIN_ENCODER_DATA  2  // XIAO D2 = GPIO2
 #define PIN_ENCODER_SW   21  // XIAO D3 = GPIO21
 
+// RE無効モード時に再利用するモード表示LED (A/B)
+#define PIN_MODE_LED_A   PIN_ENCODER_CLK
+#define PIN_MODE_LED_B   PIN_ENCODER_DATA
+
 // ==================== Geometry Buttons (Picture Move) ====================
 // 4-direction picture position control via physical buttons
 // Active LOW with internal pull-up (press = GND)
@@ -96,6 +100,10 @@
 #define PIN_ENCODER_CLK   3  // XIAO D1 = GPIO3
 #define PIN_ENCODER_DATA  4  // XIAO D2 = GPIO4
 #define PIN_ENCODER_SW    5  // XIAO D3 = GPIO5
+
+// RE無効モード時に再利用するモード表示LED (A/B)
+#define PIN_MODE_LED_A   PIN_ENCODER_CLK
+#define PIN_MODE_LED_B   PIN_ENCODER_DATA
 
 // ==================== Geometry Buttons (Picture Move) ====================
 // 4-direction picture position control via physical buttons

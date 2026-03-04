@@ -262,6 +262,7 @@ static void print_help_set(void)
         "  set autogain         Auto ADC gain\r\n"
         "  set matched          Matched presets\r\n"
         "  set upscaling        Low-res upscaling\r\n"
+        "  set input <r-encoder|d-pad>   Input mode switch + reboot\r\n"
         "  set deint <bob|ma>   Deinterlacer mode\r\n"
         "\r\n"
         "Debug settings [temp] (not saved, lost on reboot):\r\n"
@@ -437,6 +438,7 @@ static void cmd_show_config(void)
     printf("  ftlMethod         : %d\r\n", uopt->frameTimeLockMethod);
     printf("  tap6              : %d\r\n", uopt->wantTap6);
     printf("  disableExtClkGen  : %d\r\n", uopt->disableExternalClockGenerator);
+    printf("  rotaryEncoder     : %d\r\n", uopt->enableRotaryEncoder);
     if (rto) {
         printf("--- Runtime [temp] ---\r\n");
         printf("  videoStdInput     : %d\r\n", rto->videoStandardInput);
@@ -485,6 +487,7 @@ static void cmd_set(int ntok, char *tok[])
         /* 23 */ "color",
         /* 24 */ "defaults",
         /* 25 */ "ota",
+        /* 26 */ "input",
     };
     int ki = resolve_abbrev(tok[1], keys, ARRAY_SIZE(keys));
     if (ki == -2) { print_ambiguous(tok[1], keys, ARRAY_SIZE(keys)); return; }
@@ -522,6 +525,16 @@ static void cmd_set(int ntok, char *tok[])
     if (str_eq(key, "autogain"))     { send_sc('T', "[saved] Auto ADC gain toggle"); return; }
     if (str_eq(key, "matched"))      { send_sc('Z', "[saved] Matched presets toggle"); return; }
     if (str_eq(key, "upscaling"))    { send_uc('x', "[saved] Low-res upscaling toggle"); return; }
+    if (str_eq(key, "input")) {
+        if (ntok < 3) { printf("Usage: set input <r-encoder|d-pad>\r\n"); return; }
+        if      (str_eq(tok[2], "r-encoder"))
+            send_uc('I', "[saved] Input -> Rotary Encoder (reboot)");
+        else if (str_eq(tok[2], "d-pad"))
+            send_uc('J', "[saved] Input -> Geometry + Mode LED (reboot)");
+        else
+            printf("Unknown: %s (r-encoder|d-pad)\r\n", tok[2]);
+        return;
+    }
 
     /* --- Deinterlacer [saved] --- */
     if (str_eq(key, "deint")) {
@@ -932,11 +945,12 @@ static const char *const s_set_keys[] = {
     "autogain", "matched", "upscaling", "deint",
     "adcfilter", "oversample", "syncwatcher", "freeze",
     "brightness", "contrast", "gain", "color",
-    "defaults", "ota"
+    "defaults", "ota", "input"
 };
 
 static const char *const s_reso_opts[] = { "960p", "480p", "720p", "1024p", "1080p", "downscale" };
 static const char *const s_deint_opts[] = { "bob", "ma" };
+static const char *const s_input_opts[] = { "r-encoder", "d-pad" };
 static const char *const s_color_opts[] = { "reset", "info" };
 static const char *const s_pm_opts[] = { "+", "-" };
 static const char *const s_dir_opts[] = { "l", "r", "u", "d" };
@@ -992,6 +1006,10 @@ static bool get_completion_ctx(const char *line, int len,
             }
             if (str_eq(k, "deint")) {
                 *opts = s_deint_opts; *cnt = ARRAY_SIZE(s_deint_opts);
+                *prefix = sub_pfx; return true;
+            }
+            if (str_eq(k, "input")) {
+                *opts = s_input_opts; *cnt = ARRAY_SIZE(s_input_opts);
                 *prefix = sub_pfx; return true;
             }
             if (str_eq(k, "color")) {

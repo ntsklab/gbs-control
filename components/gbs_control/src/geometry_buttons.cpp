@@ -47,6 +47,9 @@ extern char userCommand;
 
 static const char *TAG = "geo_btn";
 
+#define GEO_MODE_LED_A_PIN  ((gpio_num_t)PIN_MODE_LED_A)
+#define GEO_MODE_LED_B_PIN  ((gpio_num_t)PIN_MODE_LED_B)
+
 // ---------- 設定値 ----------
 #define GEO_POLL_INTERVAL_MS    8   // ポーリング周期 (ms)
 #define GEO_DEBOUNCE_MS         16   // デバウンス時間 (ms)
@@ -148,9 +151,36 @@ static bool geo_mode_uses_user_command(geo_control_mode_t mode)
     return mode == GEO_MODE_BORDER;
 }
 
+static void geo_update_mode_leds(void)
+{
+    int led_a = 0;
+    int led_b = 0;
+
+    switch (geo_mode) {
+        case GEO_MODE_POSITION: // Mode 1: 1,0
+            led_a = 1;
+            led_b = 0;
+            break;
+        case GEO_MODE_SIZE:     // Mode 2: 0,1
+            led_a = 0;
+            led_b = 1;
+            break;
+        case GEO_MODE_BORDER:   // Mode 3: 1,1
+            led_a = 1;
+            led_b = 1;
+            break;
+        default:
+            break;
+    }
+
+    gpio_set_level(GEO_MODE_LED_A_PIN, led_a);
+    gpio_set_level(GEO_MODE_LED_B_PIN, led_b);
+}
+
 static void geo_toggle_mode(void)
 {
     geo_mode = (geo_control_mode_t)((geo_mode + 1) % GEO_MODE_COUNT);
+    geo_update_mode_leds();
     ESP_LOGI(TAG, "操作モード切替: %s", geo_mode_name(geo_mode));
 }
 
@@ -271,6 +301,8 @@ void geometry_buttons_init(void)
     ESP_LOGI(TAG, "ジオメトリボタン初期化: UP=GPIO%d, DOWN=GPIO%d, LEFT=GPIO%d, RIGHT=GPIO%d",
              PIN_GEO_UP, PIN_GEO_DOWN, PIN_GEO_LEFT, PIN_GEO_RIGHT);
 
+    ESP_LOGI(TAG, "モードLED: A=GPIO%d, B=GPIO%d", (int)GEO_MODE_LED_A_PIN, (int)GEO_MODE_LED_B_PIN);
+
     // GPIO設定: 入力 + 内部プルアップ
     for (int i = 0; i < GEO_DIR_COUNT; i++) {
         gpio_config_t io_conf = {
@@ -284,6 +316,21 @@ void geometry_buttons_init(void)
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "GPIO%d 設定失敗: %s", buttons[i].gpio, esp_err_to_name(err));
         }
+    }
+
+    // モード状態表示LED (A/B) を出力に設定
+    gpio_config_t led_conf = {
+        .pin_bit_mask = (1ULL << GEO_MODE_LED_A_PIN) | (1ULL << GEO_MODE_LED_B_PIN),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    esp_err_t led_err = gpio_config(&led_conf);
+    if (led_err != ESP_OK) {
+        ESP_LOGE(TAG, "モードLED GPIO設定失敗: %s", esp_err_to_name(led_err));
+    } else {
+        geo_update_mode_leds();
     }
 
     // ポーリングタスク作成
