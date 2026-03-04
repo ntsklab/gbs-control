@@ -7,14 +7,30 @@
  * （WebUI の /sc エンドポイントと同じ安全な方式）
  *
  * コマンドマッピング:
- *   上 (UP)    → '*'  (shiftVerticalUpIF)
- *   下 (DOWN)  → '/'  (shiftVerticalDownIF)
- *   左 (LEFT)  → '-'  (shiftHorizontalLeft)
- *   右 (RIGHT) → '+'  (shiftHorizontalRight)
+ *   [Vpos/Hpos モード]
+ *     上 (UP)    → '*'  (shiftVerticalUpIF)
+ *     下 (DOWN)  → '/'  (shiftVerticalDownIF)
+ *     左 (LEFT)  → '7'  (IF canvas move left)
+ *     右 (RIGHT) → '6'  (IF canvas move right)
+ *
+ *   [Vsize/Hsize モード]
+ *     上 (UP)    → '4'  (VScale+)
+ *     下 (DOWN)  → '5'  (VScale-)
+ *     左 (LEFT)  → 'h'  (HScale-)
+ *     右 (RIGHT) → 'z'  (HScale+)
+ *
+ *   [Border モード]
+ *     上 (UP)    → 'C'  (VBorder+)
+ *     下 (DOWN)  → 'D'  (VBorder-)
+ *     左 (LEFT)  → 'B'  (HBorder-)
+ *     右 (RIGHT) → 'A'  (HBorder+)
+ *
+ * モード切替:
+ *   左右ボタン同時長押しで Vpos/Hpos <-> Vsize/Hsize をトグル
  *
  * ボタン仕様:
  *   - アクティブLOW（内部プルアップ、押下時 GND）
- *   - デバウンス: 50 ms
+ *   - デバウンス: 16 ms
  *   - 長押しリピート: 初回 400 ms 後、150 ms 間隔
  */
 
@@ -27,13 +43,16 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 
+extern char userCommand;
+
 static const char *TAG = "geo_btn";
 
 // ---------- 設定値 ----------
-#define GEO_POLL_INTERVAL_MS    20   // ポーリング周期 (ms)
-#define GEO_DEBOUNCE_MS         50   // デバウンス時間 (ms)
+#define GEO_POLL_INTERVAL_MS    8   // ポーリング周期 (ms)
+#define GEO_DEBOUNCE_MS         16   // デバウンス時間 (ms)
 #define GEO_REPEAT_INITIAL_MS  400   // 長押し初回リピートまでの時間 (ms)
 #define GEO_REPEAT_INTERVAL_MS 150   // 長押しリピート間隔 (ms)
+#define GEO_MODE_TOGGLE_HOLD_MS GEO_REPEAT_INITIAL_MS // 左右同時長押し判定時間 (ms)
 #define GEO_TASK_STACK_SIZE   2048
 #define GEO_TASK_PRIORITY        2
 
@@ -62,31 +81,102 @@ static geo_button_t buttons[GEO_DIR_COUNT] = {
     { .gpio = (gpio_num_t)PIN_GEO_RIGHT, .dir = GEO_DIR_RIGHT, .pressed = false, .debounce_ts = 0, .last_action_ts = 0, .initial_fired = false },
 };
 
+typedef enum {
+    GEO_MODE_POSITION = 0,  // Vpos/Hpos
+    GEO_MODE_SIZE,         // Vsize/Hsize
+    GEO_MODE_BORDER,       // Border
+    GEO_MODE_COUNT
+} geo_control_mode_t;
+
+static geo_control_mode_t geo_mode = GEO_MODE_POSITION;
+static uint32_t geo_lr_hold_ts = 0;
+static bool geo_lr_toggle_fired = false;
+
 // ---------- コマンド文字マッピング ----------
 // WebUI「Picture Control > move」セクションと同じコマンドを使用
 // gbs_control.cpp の serialCommand switch 文で処理される
-static const char geo_cmd_map[GEO_DIR_COUNT] = {
+static const char geo_cmd_map_pos[GEO_DIR_COUNT] = {
     [GEO_DIR_UP]    = '*',   // shiftVerticalUpIF()   — IF垂直位置 上
     [GEO_DIR_DOWN]  = '/',   // shiftVerticalDownIF() — IF垂直位置 下
     [GEO_DIR_LEFT]  = '7',   // IF canvas move left   — IF水平位置 左
     [GEO_DIR_RIGHT] = '6',   // IF canvas move right  — IF水平位置 右
 };
 
+static const char geo_cmd_map_size[GEO_DIR_COUNT] = {
+    [GEO_DIR_UP]    = '4',   // VScale+  — Vsize 拡大
+    [GEO_DIR_DOWN]  = '5',   // VScale-  — Vsize 縮小
+    [GEO_DIR_LEFT]  = 'h',   // HScale-  — Hsize 縮小
+    [GEO_DIR_RIGHT] = 'z',   // HScale+  — Hsize 拡大
+};
+
+static const char geo_cmd_map_border[GEO_DIR_COUNT] = {
+    [GEO_DIR_UP]    = 'C',   // VBorder+ — 上ボーダー縮小
+    [GEO_DIR_DOWN]  = 'D',   // VBorder- — 下ボーダー縮小
+    [GEO_DIR_LEFT]  = 'B',   // HBorder- — 左右表示幅拡張
+    [GEO_DIR_RIGHT] = 'A',   // HBorder+ — 左右表示幅縮小
+};
+
 static const char *geo_dir_names[GEO_DIR_COUNT] = {
     "UP", "DOWN", "LEFT", "RIGHT"
 };
+
+static const char *geo_mode_name(geo_control_mode_t mode)
+{
+    switch (mode) {
+        case GEO_MODE_POSITION: return "Vpos/Hpos";
+        case GEO_MODE_SIZE:     return "Vsize/Hsize";
+        case GEO_MODE_BORDER:   return "Border";
+        default:                return "Unknown";
+    }
+}
+
+static char geo_get_cmd(geo_dir_t dir)
+{
+    switch (geo_mode) {
+        case GEO_MODE_SIZE:
+            return geo_cmd_map_size[dir];
+        case GEO_MODE_BORDER:
+            return geo_cmd_map_border[dir];
+        case GEO_MODE_POSITION:
+        default:
+            return geo_cmd_map_pos[dir];
+    }
+}
+
+static bool geo_mode_uses_user_command(geo_control_mode_t mode)
+{
+    return mode == GEO_MODE_BORDER;
+}
+
+static void geo_toggle_mode(void)
+{
+    geo_mode = (geo_control_mode_t)((geo_mode + 1) % GEO_MODE_COUNT);
+    ESP_LOGI(TAG, "操作モード切替: %s", geo_mode_name(geo_mode));
+}
 
 // ---------- アクション実行 ----------
 // serialCommand にコマンド文字を書き込む（メインループで安全に処理される）
 static void geo_execute_action(geo_dir_t dir)
 {
-    // serialCommand が '@' (idle) のときだけ書き込む
+    char cmd = geo_get_cmd(dir);
+    bool use_user_cmd = geo_mode_uses_user_command(geo_mode);
+
+    // 対象コマンド変数が '@' (idle) のときだけ書き込む
     // 前回のコマンドがまだ処理されていない場合はスキップ
-    if (serialCommand == '@') {
-        serialCommand = geo_cmd_map[dir];
-        ESP_LOGD(TAG, "%s → cmd='%c'", geo_dir_names[dir], geo_cmd_map[dir]);
+    if (use_user_cmd) {
+        if (userCommand == '@') {
+            userCommand = cmd;
+            ESP_LOGD(TAG, "%s[%s] → ucmd='%c'", geo_dir_names[dir], geo_mode_name(geo_mode), cmd);
+        } else {
+            ESP_LOGD(TAG, "%s スキップ (userCommand処理中)", geo_dir_names[dir]);
+        }
     } else {
-        ESP_LOGD(TAG, "%s スキップ (コマンド処理中)", geo_dir_names[dir]);
+        if (serialCommand == '@') {
+            serialCommand = cmd;
+            ESP_LOGD(TAG, "%s[%s] → scmd='%c'", geo_dir_names[dir], geo_mode_name(geo_mode), cmd);
+        } else {
+            ESP_LOGD(TAG, "%s スキップ (serialCommand処理中)", geo_dir_names[dir]);
+        }
     }
 }
 
@@ -94,9 +184,11 @@ static void geo_execute_action(geo_dir_t dir)
 static void geo_button_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "ジオメトリボタン タスク開始");
+    ESP_LOGI(TAG, "初期操作モード: %s", geo_mode_name(geo_mode));
 
     while (true) {
         uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        bool just_pressed[GEO_DIR_COUNT] = { false };
 
         for (int i = 0; i < GEO_DIR_COUNT; i++) {
             geo_button_t *btn = &buttons[i];
@@ -112,9 +204,8 @@ static void geo_button_task(void *pvParameters)
                     btn->debounce_ts = 0;
 
                     if (btn->pressed) {
-                        // 押下開始 → 即時アクション
-                        geo_execute_action(btn->dir);
-                        btn->last_action_ts = now;
+                        // 押下開始（実アクションは後段でまとめて処理）
+                        just_pressed[i] = true;
                         btn->initial_fired = false;
                     }
                 }
@@ -122,8 +213,42 @@ static void geo_button_task(void *pvParameters)
                 btn->debounce_ts = 0;  // 変化なし → タイマーリセット
             }
 
+            if (!btn->pressed) {
+                btn->initial_fired = false;
+            }
+        }
+
+        geo_button_t *left_btn = &buttons[GEO_DIR_LEFT];
+        geo_button_t *right_btn = &buttons[GEO_DIR_RIGHT];
+        bool lr_combo_pressed = left_btn->pressed && right_btn->pressed;
+
+        if (lr_combo_pressed) {
+            if (geo_lr_hold_ts == 0) {
+                geo_lr_hold_ts = now;
+                geo_lr_toggle_fired = false;
+            } else if (!geo_lr_toggle_fired && (now - geo_lr_hold_ts) >= GEO_MODE_TOGGLE_HOLD_MS) {
+                geo_toggle_mode();
+                geo_lr_toggle_fired = true;
+            }
+        } else {
+            geo_lr_hold_ts = 0;
+            geo_lr_toggle_fired = false;
+        }
+
+        for (int i = 0; i < GEO_DIR_COUNT; i++) {
+            geo_button_t *btn = &buttons[i];
+            bool suppress_for_lr_combo = lr_combo_pressed &&
+                                         (btn->dir == GEO_DIR_LEFT || btn->dir == GEO_DIR_RIGHT);
+
+            if (just_pressed[i]) {
+                if (!suppress_for_lr_combo) {
+                    geo_execute_action(btn->dir);
+                }
+                btn->last_action_ts = now;
+            }
+
             // 長押しリピート処理
-            if (btn->pressed) {
+            if (btn->pressed && !suppress_for_lr_combo) {
                 uint32_t elapsed = now - btn->last_action_ts;
                 if (!btn->initial_fired && elapsed >= GEO_REPEAT_INITIAL_MS) {
                     geo_execute_action(btn->dir);
