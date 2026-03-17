@@ -18,6 +18,7 @@ void ble_serial_init(ble_serial_line_cb_t line_cb);
 void ble_serial_send(const char *data, size_t len);
 int ble_serial_is_connected(void);
 void ble_serial_set_line_buffer(const char *line);
+void ble_serial_set_device_name(const char *suffix);
 
 #ifdef __cplusplus
 }

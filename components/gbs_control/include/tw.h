@@ -344,14 +344,19 @@ namespace tw
 
             static Value read(void)
             {
+                Wire.lockBus();
                 setSeg(Seg);
-                return Base::read();
+                Value v = Base::read();
+                Wire.unlockBus();
+                return v;
             }
 
             static void write(Value value)
             {
+                Wire.lockBus();
                 setSeg(Seg);
                 Base::write(value);
+                Wire.unlockBus();
             }
         };
 
@@ -366,21 +371,27 @@ namespace tw
         public:
             static void read(typename Regs::Value &... values)
             {
+                Wire.lockBus();
                 setSeg(segment);
                 BaseTie::read(values...);
+                Wire.unlockBus();
             }
 
             static void write(typename Regs::Value... values)
             {
+                Wire.lockBus();
                 setSeg(segment);
                 BaseTie::write(values...);
+                Wire.unlockBus();
             }
         };
 
         static void read(SegValue seg, uint8_t offset, uint8_t *output, uint8_t size)
         {
+            Wire.lockBus();
             setSeg(seg);
             detail::rawRead(Addr, offset, output, size);
+            Wire.unlockBus();
         }
 
         static uint8_t read(SegValue seg, uint8_t offset)
@@ -392,8 +403,10 @@ namespace tw
 
         static void write(SegValue seg, uint8_t offset, uint8_t const *input, uint8_t size)
         {
+            Wire.lockBus();
             setSeg(seg);
             detail::rawWrite(Addr, offset, input, size);
+            Wire.unlockBus();
         }
 
         static void write(SegValue seg, uint8_t offset, uint8_t value)

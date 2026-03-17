@@ -2,6 +2,7 @@
 #include "Arduino.h"
 #include "pin_config.h"  // Consolidated pin definitions for XIAO ESP32-C3
 #include "esp_mac.h"     // esp_efuse_mac_get_default
+#include "esp_wifi.h"    // esp_wifi_get_mode, esp_wifi_set_config, etc.
 
 #include "ntsc_240p.h"
 #include "pal_240p.h"
@@ -34,6 +35,7 @@
 
 // Forward declarations for all functions (Arduino .ino auto-declares these)
 #include "gbs_forward_decls.h"
+#include "ble_serial.h"
 
 
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
@@ -44,8 +46,6 @@ const int pin_clk = PIN_ENCODER_CLK;       // Rotary encoder CLK
 const int pin_data = PIN_ENCODER_DATA;     // Rotary encoder DATA
 const int pin_switch = PIN_ENCODER_SW;     // Rotary encoder SWITCH
 
-#define INPUT_MODE_ROTARY   1
-#define INPUT_MODE_GEOMETRY 0
 
 
 #if USE_NEW_OLED_MENU
@@ -144,6 +144,16 @@ static void gbs_build_device_names(void)
 
 static const char *ap_info_string = ap_info_buf;
 static const char *st_info_string = st_info_buf;
+
+static void gbs_rebuild_info_strings(void)
+{
+    snprintf(ap_info_buf, sizeof(ap_info_buf),
+             "(WiFi): AP mode (SSID: %s, pass '%s'): Access '%s' in browser",
+             ap_ssid_buf, ap_password, hostname_full_buf);
+    snprintf(st_info_buf, sizeof(st_info_buf),
+             "(WiFi): Access 'http://%s:80' or 'http://%s' (or device IP) in browser",
+             hostname_partial_buf, hostname_full_buf);
+}
 
 AsyncWebServer server(80);
 DNSServer dnsServer;
@@ -7112,7 +7122,6 @@ void loadDefaultUserOptions()
     uopt->enableCalibrationADC = 1;          // #17
     uopt->scanlineStrength = 0x30;           // #18
     uopt->disableExternalClockGenerator = 0; // #19
-    uopt->enableRotaryEncoder = INPUT_MODE_ROTARY;
 }
 
 //RF_PRE_INIT() {
@@ -7193,10 +7202,10 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
 
 static bool rotaryEncoderEnabled(void)
 {
-    return uopt->enableRotaryEncoder == INPUT_MODE_ROTARY;
+    return PINCFG_USE_ROTARY_ENCODER != 0;
 }
 
-static void applyInputModeFromPrefs(void)
+static void applyInputModeFromPinConfig(void)
 {
     detachInterrupt(digitalPinToInterrupt(pin_clk));
     detachInterrupt(digitalPinToInterrupt(pin_switch));
@@ -7435,20 +7444,36 @@ void gbs_setup()
             if (uopt->disableExternalClockGenerator > 1)
                 uopt->disableExternalClockGenerator = 0;
 
-            int rotaryMode = f.read();
-            if (rotaryMode == -1) {
-                uopt->enableRotaryEncoder = INPUT_MODE_ROTARY; // backward compatibility
-            } else {
-                uopt->enableRotaryEncoder = (uint8_t)(rotaryMode - '0');
-                if (uopt->enableRotaryEncoder > 1)
-                    uopt->enableRotaryEncoder = INPUT_MODE_ROTARY;
-            }
-
             f.close();
         }
     }
 
-    applyInputModeFromPrefs();
+    // Load custom SSID from SPIFFS (if saved) and update AP credentials
+    {
+        File sf = SPIFFS.open("/ssid.txt", "r");
+        if (sf) {
+            size_t n = sf.read((uint8_t *)ap_ssid_buf, sizeof(ap_ssid_buf) - 1);
+            sf.close();
+            // trim trailing whitespace
+            while (n > 0 && (ap_ssid_buf[n-1] == '\n' || ap_ssid_buf[n-1] == '\r' || ap_ssid_buf[n-1] == ' '))
+                n--;
+            ap_ssid_buf[n] = '\0';
+            if (n > 0) {
+                gbs_rebuild_info_strings();
+                persWM.setApCredentials(ap_ssid_buf, ap_password);
+                ble_serial_set_device_name(ap_ssid_buf);
+                wifi_mode_t cur_mode;
+                if (esp_wifi_get_mode(&cur_mode) == ESP_OK &&
+                    (cur_mode == WIFI_MODE_AP || cur_mode == WIFI_MODE_APSTA)) {
+                    persWM.startApMode();
+                }
+                SerialM.print(F("(WiFi): Custom SSID loaded: "));
+                SerialM.println(ap_ssid_buf);
+            }
+        }
+    }
+
+    applyInputModeFromPinConfig();
 
 
     GBS::PAD_CKIN_ENZ::write(1); // disable to prevent startup spike damage
@@ -8734,10 +8759,13 @@ void gbs_loop()
                 ? FrameSync::runFrequency()
                 : FrameSync::runVsync(uopt->frameTimeLockMethod);
             if (!success) {
-                if (rto->syncLockFailIgnore-- == 0) {
+                if (rto->syncLockFailIgnore > 0) {
+                    rto->syncLockFailIgnore--;
+                }
+                if (rto->syncLockFailIgnore == 0) {
                     FrameSync::reset(uopt->frameTimeLockMethod); // in case run() failed because we lost sync signal
                 }
-            } else if (rto->syncLockFailIgnore > 0) {
+            } else {
                 rto->syncLockFailIgnore = 16;
             }
             //Serial.println(millis() - startTime);
@@ -8961,6 +8989,7 @@ void gbs_loop()
         }
     }
 #endif
+
 }
 
 #include "webui_html.h"
@@ -9362,24 +9391,6 @@ void handleType2Command(char argument)
                 SerialM.println("enabled");
             }
             saveUserPrefs();
-            break;
-        case 'I':
-            if (uopt->enableRotaryEncoder != INPUT_MODE_ROTARY) {
-                uopt->enableRotaryEncoder = INPUT_MODE_ROTARY;
-                saveUserPrefs();
-            }
-            SerialM.println(F("Input mode -> Rotary Encoder (restarting)"));
-            delay(60);
-            ESP.reset();
-            break;
-        case 'J':
-            if (uopt->enableRotaryEncoder != INPUT_MODE_GEOMETRY) {
-                uopt->enableRotaryEncoder = INPUT_MODE_GEOMETRY;
-                saveUserPrefs();
-            }
-            SerialM.println(F("Input mode -> Geometry + Mode LED (restarting)"));
-            delay(60);
-            ESP.reset();
             break;
         case 'z':
             // sog slicer level
@@ -10256,10 +10267,41 @@ void saveUserPrefs()
     f.write(uopt->enableCalibrationADC + '0');          // #17
     f.write(uopt->scanlineStrength + '0');              // #18
     f.write(uopt->disableExternalClockGenerator + '0'); // #19
-    f.write(uopt->enableRotaryEncoder + '0');
-
-
     f.close();
+}
+
+bool gbs_set_custom_ssid(const char *ssid)
+{
+    if (!ssid || strlen(ssid) == 0) {
+        // clear custom SSID — revert to MAC-based default
+        SPIFFS.remove("/ssid.txt");
+        gbs_build_device_names();
+        persWM.setApCredentials(ap_ssid_buf, ap_password);
+        ble_serial_set_device_name(NULL); // revert to MAC-based BLE name
+    } else {
+        size_t len = strlen(ssid);
+        if (len > sizeof(ap_ssid_buf) - 1) return false;
+
+        File f = SPIFFS.open("/ssid.txt", "w");
+        if (!f) return false;
+        f.write((const uint8_t *)ssid, len);
+        f.close();
+
+        strncpy(ap_ssid_buf, ssid, sizeof(ap_ssid_buf) - 1);
+        ap_ssid_buf[sizeof(ap_ssid_buf) - 1] = '\0';
+        gbs_rebuild_info_strings();
+        persWM.setApCredentials(ap_ssid_buf, ap_password);
+        ble_serial_set_device_name(ssid); // update BLE name to match
+    }
+
+    // If AP is currently running, restart AP path with updated credentials
+    // so beacon SSID and captive DNS are both refreshed.
+    wifi_mode_t cur_mode;
+    if (esp_wifi_get_mode(&cur_mode) == ESP_OK &&
+        (cur_mode == WIFI_MODE_AP || cur_mode == WIFI_MODE_APSTA)) {
+        persWM.startApMode();
+    }
+    return true;
 }
 
 #if !USE_NEW_OLED_MENU

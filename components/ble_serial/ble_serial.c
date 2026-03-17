@@ -30,7 +30,7 @@
 
 static const char *TAG = "ble_serial";
 
-#define BLE_SERIAL_DEV_NAME_BASE "GBS-Control"
+#define BLE_SERIAL_DEV_NAME_BASE "GBS"
 #define BLE_SERIAL_LINE_BUF_SIZE 128
 #define BLE_SERIAL_TX_CHUNK_MAX  180
 
@@ -42,6 +42,7 @@ static uint16_t s_tx_val_handle = 0;
 static uint8_t  s_own_addr_type = BLE_OWN_ADDR_PUBLIC;
 static char     s_dev_name[32] = BLE_SERIAL_DEV_NAME_BASE;
 static bool     s_ble_initialized = false;
+static bool     s_ble_synced = false;
 
 static char    s_line_buf[BLE_SERIAL_LINE_BUF_SIZE];
 static size_t  s_line_len = 0;
@@ -232,6 +233,8 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "BLE disconnected (reason=%d)", event->disconnect.reason);
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        /* Ensure advertising state is clean before restart */
+        ble_gap_adv_stop();
         ble_serial_advertise();
         return 0;
 
@@ -256,7 +259,14 @@ static void ble_serial_advertise(void)
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.name = (uint8_t *)s_dev_name;
     fields.name_len = strlen(s_dev_name);
-    fields.name_is_complete = 1;
+    /* BLE adv payload max = 31 bytes.  flags field = 3 bytes,
+     * name AD structure = 2 + name_len.  So max name = 31 - 3 - 2 = 26. */
+    if (fields.name_len > 26) {
+        fields.name_len = 26;
+        fields.name_is_complete = 0;
+    } else {
+        fields.name_is_complete = 1;
+    }
 
     int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
@@ -271,7 +281,9 @@ static void ble_serial_advertise(void)
 
     rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER,
                            &adv_params, ble_gap_event_cb, NULL);
-    if (rc != 0) {
+    if (rc == BLE_HS_EALREADY) {
+        /* Already advertising — not an error */
+    } else if (rc != 0) {
         ESP_LOGE(TAG, "ble_gap_adv_start failed: %d", rc);
     } else {
         ESP_LOGI(TAG, "BLE advertising as '%s'", s_dev_name);
@@ -280,6 +292,8 @@ static void ble_serial_advertise(void)
 
 static void ble_on_sync(void)
 {
+    s_ble_synced = true;
+
     int rc = ble_hs_util_ensure_addr(0);
     if (rc != 0) {
         ESP_LOGE(TAG, "ble_hs_util_ensure_addr failed: %d", rc);
@@ -314,6 +328,45 @@ static void nimble_host_task(void *param)
 }
 
 #endif /* CONFIG_BT_ENABLED && CONFIG_BT_NIMBLE_ENABLED */
+
+void ble_serial_set_device_name(const char *suffix)
+{
+#if CONFIG_BT_ENABLED && CONFIG_BT_NIMBLE_ENABLED
+    if (!s_ble_initialized) return;
+
+    /* Update name buffer */
+    if (suffix && suffix[0]) {
+        snprintf(s_dev_name, sizeof(s_dev_name), "%s-%s",
+                 BLE_SERIAL_DEV_NAME_BASE, suffix);
+    } else {
+        ble_serial_build_device_name();
+    }
+
+    /* Update GAP device name (used in scan responses) */
+    ble_svc_gap_device_name_set(s_dev_name);
+
+    /*
+     * Restart advertising only if:
+     *  - NimBLE host has completed sync (ble_on_sync called)
+     *  - Not currently connected (advertising is idle or running)
+     *
+     * If called before sync (e.g. during boot), ble_on_sync() will
+     * pick up the updated s_dev_name automatically.
+     */
+    if (s_ble_synced && s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        ble_gap_adv_stop();
+        /* ble_gap_adv_stop may trigger BLE_GAP_EVENT_ADV_COMPLETE which
+         * calls ble_serial_advertise() — that will re-advertise with the
+         * updated s_dev_name.  If it already ran, ble_serial_advertise()
+         * handles BLE_HS_EALREADY gracefully. */
+        ble_serial_advertise();
+    }
+
+    ESP_LOGI(TAG, "BLE name updated: %s", s_dev_name);
+#else
+    (void)suffix;
+#endif
+}
 
 void ble_serial_init(ble_serial_line_cb_t line_cb)
 {

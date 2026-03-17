@@ -9,6 +9,8 @@
 
 #include <stdint.h>
 #include "driver/i2c_master.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "Stream.h"
 
 #define I2C_BUFFER_LENGTH 128
@@ -26,6 +28,14 @@ public:
 
     void beginTransmission(uint8_t address);
     uint8_t endTransmission(bool sendStop = true);
+
+    // Lock/unlock the bus for compound operations (segment select + register access).
+    // Uses a recursive mutex, so nested calls from beginTransmission etc. are safe.
+    void lockBus()   { if (_mutex) xSemaphoreTakeRecursive(_mutex, portMAX_DELAY); }
+    bool tryLockBus(TickType_t timeout = 0) {
+        return _mutex && xSemaphoreTakeRecursive(_mutex, timeout) == pdTRUE;
+    }
+    void unlockBus() { if (_mutex) xSemaphoreGiveRecursive(_mutex); }
 
     size_t requestFrom(uint8_t address, size_t quantity, bool sendStop = true);
     size_t requestFrom(uint8_t address, uint8_t quantity, uint8_t sendStop) {
@@ -70,6 +80,8 @@ private:
     int _devCacheCount;
 
     i2c_master_dev_handle_t getDevHandle(uint8_t address);
+
+    SemaphoreHandle_t _mutex;
 };
 
 extern TwoWire Wire;

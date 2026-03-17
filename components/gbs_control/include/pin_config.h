@@ -31,6 +31,13 @@
 #include "sdkconfig.h"
 
 // =============================================================================
+//  Input mode selector (build-time)
+// =============================================================================
+// 1: Rotary Encoder enabled
+// 0: D-pad Geometry + Mode LED/Mode Button enabled
+#define PINCFG_USE_ROTARY_ENCODER 0
+
+// =============================================================================
 //  Board-specific GPIO mapping
 // =============================================================================
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
@@ -51,6 +58,9 @@
 // RE無効モード時に再利用するモード表示LED (A/B)
 #define PIN_MODE_LED_A   PIN_ENCODER_CLK
 #define PIN_MODE_LED_B   PIN_ENCODER_DATA
+
+// RE無効モード時に再利用するモード切替ボタン
+#define PIN_GEO_MODE_BTN PIN_ENCODER_SW
 
 // ==================== Geometry Buttons (Picture Move) ====================
 // 4-direction picture position control via physical buttons
@@ -104,6 +114,9 @@
 // RE無効モード時に再利用するモード表示LED (A/B)
 #define PIN_MODE_LED_A   PIN_ENCODER_CLK
 #define PIN_MODE_LED_B   PIN_ENCODER_DATA
+
+// RE無効モード時に再利用するモード切替ボタン
+#define PIN_GEO_MODE_BTN PIN_ENCODER_SW
 
 // ==================== Geometry Buttons (Picture Move) ====================
 // 4-direction picture position control via physical buttons

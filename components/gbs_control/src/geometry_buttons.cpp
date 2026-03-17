@@ -26,7 +26,7 @@
  *     右 (RIGHT) → 'A'  (HBorder+)
  *
  * モード切替:
- *   左右ボタン同時長押しで Vpos/Hpos <-> Vsize/Hsize をトグル
+ *   専用モードボタン短押しで Vpos/Hpos -> Vsize/Hsize -> Border を順送り
  *
  * ボタン仕様:
  *   - アクティブLOW（内部プルアップ、押下時 GND）
@@ -49,13 +49,13 @@ static const char *TAG = "geo_btn";
 
 #define GEO_MODE_LED_A_PIN  ((gpio_num_t)PIN_MODE_LED_A)
 #define GEO_MODE_LED_B_PIN  ((gpio_num_t)PIN_MODE_LED_B)
+#define GEO_MODE_BTN_PIN    ((gpio_num_t)PIN_GEO_MODE_BTN)
 
 // ---------- 設定値 ----------
 #define GEO_POLL_INTERVAL_MS    8   // ポーリング周期 (ms)
 #define GEO_DEBOUNCE_MS         16   // デバウンス時間 (ms)
 #define GEO_REPEAT_INITIAL_MS  400   // 長押し初回リピートまでの時間 (ms)
 #define GEO_REPEAT_INTERVAL_MS 150   // 長押しリピート間隔 (ms)
-#define GEO_MODE_TOGGLE_HOLD_MS GEO_REPEAT_INITIAL_MS // 左右同時長押し判定時間 (ms)
 #define GEO_TASK_STACK_SIZE   2048
 #define GEO_TASK_PRIORITY        2
 
@@ -92,8 +92,9 @@ typedef enum {
 } geo_control_mode_t;
 
 static geo_control_mode_t geo_mode = GEO_MODE_POSITION;
-static uint32_t geo_lr_hold_ts = 0;
-static bool geo_lr_toggle_fired = false;
+
+static bool geo_mode_btn_pressed = false;
+static uint32_t geo_mode_btn_debounce_ts = 0;
 
 // ---------- コマンド文字マッピング ----------
 // WebUI「Picture Control > move」セクションと同じコマンドを使用
@@ -248,37 +249,36 @@ static void geo_button_task(void *pvParameters)
             }
         }
 
-        geo_button_t *left_btn = &buttons[GEO_DIR_LEFT];
-        geo_button_t *right_btn = &buttons[GEO_DIR_RIGHT];
-        bool lr_combo_pressed = left_btn->pressed && right_btn->pressed;
-
-        if (lr_combo_pressed) {
-            if (geo_lr_hold_ts == 0) {
-                geo_lr_hold_ts = now;
-                geo_lr_toggle_fired = false;
-            } else if (!geo_lr_toggle_fired && (now - geo_lr_hold_ts) >= GEO_MODE_TOGGLE_HOLD_MS) {
-                geo_toggle_mode();
-                geo_lr_toggle_fired = true;
+        bool mode_btn_raw_pressed = (gpio_get_level(GEO_MODE_BTN_PIN) == 0); // Active LOW
+        bool mode_btn_just_pressed = false;
+        if (mode_btn_raw_pressed != geo_mode_btn_pressed) {
+            if (geo_mode_btn_debounce_ts == 0) {
+                geo_mode_btn_debounce_ts = now;
+            } else if ((now - geo_mode_btn_debounce_ts) >= GEO_DEBOUNCE_MS) {
+                geo_mode_btn_pressed = mode_btn_raw_pressed;
+                geo_mode_btn_debounce_ts = 0;
+                if (geo_mode_btn_pressed) {
+                    mode_btn_just_pressed = true;
+                }
             }
         } else {
-            geo_lr_hold_ts = 0;
-            geo_lr_toggle_fired = false;
+            geo_mode_btn_debounce_ts = 0;
+        }
+
+        if (mode_btn_just_pressed) {
+                geo_toggle_mode();
         }
 
         for (int i = 0; i < GEO_DIR_COUNT; i++) {
             geo_button_t *btn = &buttons[i];
-            bool suppress_for_lr_combo = lr_combo_pressed &&
-                                         (btn->dir == GEO_DIR_LEFT || btn->dir == GEO_DIR_RIGHT);
 
             if (just_pressed[i]) {
-                if (!suppress_for_lr_combo) {
-                    geo_execute_action(btn->dir);
-                }
+                geo_execute_action(btn->dir);
                 btn->last_action_ts = now;
             }
 
             // 長押しリピート処理
-            if (btn->pressed && !suppress_for_lr_combo) {
+            if (btn->pressed) {
                 uint32_t elapsed = now - btn->last_action_ts;
                 if (!btn->initial_fired && elapsed >= GEO_REPEAT_INITIAL_MS) {
                     geo_execute_action(btn->dir);
@@ -301,6 +301,8 @@ void geometry_buttons_init(void)
     ESP_LOGI(TAG, "ジオメトリボタン初期化: UP=GPIO%d, DOWN=GPIO%d, LEFT=GPIO%d, RIGHT=GPIO%d",
              PIN_GEO_UP, PIN_GEO_DOWN, PIN_GEO_LEFT, PIN_GEO_RIGHT);
 
+    ESP_LOGI(TAG, "モード切替ボタン: GPIO%d", (int)GEO_MODE_BTN_PIN);
+
     ESP_LOGI(TAG, "モードLED: A=GPIO%d, B=GPIO%d", (int)GEO_MODE_LED_A_PIN, (int)GEO_MODE_LED_B_PIN);
 
     // GPIO設定: 入力 + 内部プルアップ
@@ -316,6 +318,18 @@ void geometry_buttons_init(void)
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "GPIO%d 設定失敗: %s", buttons[i].gpio, esp_err_to_name(err));
         }
+    }
+
+    gpio_config_t mode_btn_conf = {
+        .pin_bit_mask = (1ULL << GEO_MODE_BTN_PIN),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    esp_err_t mode_btn_err = gpio_config(&mode_btn_conf);
+    if (mode_btn_err != ESP_OK) {
+        ESP_LOGE(TAG, "モードボタン GPIO設定失敗: %s", esp_err_to_name(mode_btn_err));
     }
 
     // モード状態表示LED (A/B) を出力に設定

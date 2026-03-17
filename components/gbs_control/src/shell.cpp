@@ -24,11 +24,12 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 
-#include <Wire.h>
+#include "pin_config.h"
 #include "tv5725.h"
 #include "options.h"
 #include "slot.h"
 #include "FS.h"
+#include "shell_i2c_bridge.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -54,6 +55,8 @@ extern String slotIndexMap;
 extern SPIFFSClass SPIFFS;
 extern void savePresetToSPIFFS();
 extern void saveUserPrefs();
+extern bool gbs_set_custom_ssid(const char *ssid);
+extern const char *ap_ssid;
 
 /* GBS I2C address (7-bit) */
 #define GBS_I2C_ADDR GBS_ADDR
@@ -61,38 +64,14 @@ extern void saveUserPrefs();
 /* ==========================================================
  * Direct register access — DEBUG commands only
  * ========================================================== */
-static uint8_t gbs_last_segment = 0;
-
-static void gbs_select_segment(uint8_t seg)
-{
-    if (gbs_last_segment != seg) {
-        Wire.beginTransmission(GBS_I2C_ADDR);
-        Wire.write(0xF0);
-        Wire.write(seg);
-        Wire.endTransmission();
-        gbs_last_segment = seg;
-    }
-}
-
 static int gbs_reg_read_byte(uint8_t seg, uint8_t addr, uint8_t *val)
 {
-    gbs_select_segment(seg);
-    Wire.beginTransmission(GBS_I2C_ADDR);
-    Wire.write(addr);
-    Wire.endTransmission();
-    Wire.requestFrom((uint8_t)GBS_I2C_ADDR, (uint8_t)1);
-    if (Wire.available()) { *val = Wire.read(); return 0; }
-    return -1;
+    return shellI2cBridgeRead(seg, addr, val);
 }
 
 static int gbs_reg_write_byte(uint8_t seg, uint8_t addr, uint8_t val)
 {
-    gbs_select_segment(seg);
-    Wire.beginTransmission(GBS_I2C_ADDR);
-    Wire.write(addr);
-    Wire.write(val);
-    Wire.endTransmission();
-    return 0;
+    return shellI2cBridgeWrite(seg, addr, val);
 }
 
 /* ==========================================================
@@ -262,7 +241,6 @@ static void print_help_set(void)
         "  set autogain         Auto ADC gain\r\n"
         "  set matched          Matched presets\r\n"
         "  set upscaling        Low-res upscaling\r\n"
-        "  set input <r-encoder|d-pad>   Input mode switch + reboot\r\n"
         "  set deint <bob|ma>   Deinterlacer mode\r\n"
         "\r\n"
         "Debug settings [temp] (not saved, lost on reboot):\r\n"
@@ -286,6 +264,8 @@ static void print_help_set(void)
         "System:\r\n"
         "  set defaults         Reset all + reboot\r\n"
         "  set ota              Enable OTA update [temp]\r\n"
+        "  set ssid <name>      Set custom AP SSID [saved]\r\n"
+        "  set ssid reset       Revert to default MAC-based SSID\r\n"
         "\r\n"
     );
 }
@@ -337,11 +317,9 @@ static void print_help_debug(void)
 static void cmd_probe(void)
 {
     printf("I2C Probe: GBS8200 at 0x%02X...\r\n", GBS_I2C_ADDR);
-    Wire.beginTransmission(GBS_I2C_ADDR);
-    int err = Wire.endTransmission();
-    if (err != 0) { printf("Probe failed (err %d)\r\n", err); return; }
     uint8_t f = 0, p = 0, r = 0;
-    gbs_reg_read_byte(0, 0x00, &f);
+    int rc = gbs_reg_read_byte(0, 0x00, &f);
+    if (rc != 0) { printf("Probe failed (bridge err %d)\r\n", rc); return; }
     gbs_reg_read_byte(0, 0x01, &p);
     gbs_reg_read_byte(0, 0x02, &r);
     printf("Found: foundry=0x%02X product=0x%02X rev=0x%02X\r\n", f, p, r);
@@ -391,28 +369,58 @@ static void cmd_dump(const char *arg)
 
 static void cmd_show_status(void)
 {
-    printf("\r\n=== GBS Status (direct reg read) ===\r\n");
-    uint8_t s0_00 = 0, s0_16 = 0, s0_17 = 0;
-    gbs_reg_read_byte(0, 0x00, &s0_00);
-    gbs_reg_read_byte(0, 0x16, &s0_16);
-    gbs_reg_read_byte(0, 0x17, &s0_17);
-    printf("  Chip ID: 0x%02X  S0[16]=0x%02X S0[17]=0x%02X\r\n", s0_00, s0_16, s0_17);
+    printf("\r\n=== GBS ステータス ===\r\n");
+    uint8_t s0_00 = 0, s0_16 = 0, s0_0f = 0;
+    int rc = 0;
+    rc |= gbs_reg_read_byte(0, 0x00, &s0_00);
+    rc |= gbs_reg_read_byte(0, 0x16, &s0_16);
+    rc |= gbs_reg_read_byte(0, 0x0f, &s0_0f);
+    if (rc != 0) { printf("  読取エラー (%d)\r\n\r\n", rc); return; }
+    printf("  チップID: 0x%02X  割込状態: 0x%02X  同期状態: 0x%02X\r\n", s0_00, s0_16, s0_0f);
 
-    uint8_t hpl = 0, hph = 0, vpl = 0, vph = 0;
-    gbs_reg_read_byte(0, 0x07, &hpl); gbs_reg_read_byte(0, 0x08, &hph);
-    gbs_reg_read_byte(0, 0x0A, &vpl); gbs_reg_read_byte(0, 0x0B, &vph);
-    uint16_t hp = (uint16_t)hpl | ((uint16_t)(hph & 0x0F) << 8);
-    uint16_t vp = (uint16_t)vpl | ((uint16_t)(vph & 0x0F) << 8);
-    float hus = ((float)hp * 4.0f) / 27.0f;
-    float vms = hus * (float)vp / 1000.0f;
-    float fps = (vms > 0) ? (1000.0f / vms) : 0;
-    printf("  Hperiod=%u (%.1fus) Vperiod=%u FPS=%.2f\r\n", hp, hus, vp, fps);
+    uint8_t htl = 0, hth = 0, vtl = 0, vth = 0, hll = 0, hlh = 0;
+    rc |= gbs_reg_read_byte(0, 0x17, &htl); rc |= gbs_reg_read_byte(0, 0x18, &hth);
+    rc |= gbs_reg_read_byte(0, 0x19, &hll); rc |= gbs_reg_read_byte(0, 0x1a, &hlh);
+    rc |= gbs_reg_read_byte(0, 0x1B, &vtl); rc |= gbs_reg_read_byte(0, 0x1C, &vth);
+    if (rc != 0) { printf("  読取エラー (%d)\r\n\r\n", rc); return; }
+    uint16_t htotal = (uint16_t)htl | ((uint16_t)(hth & 0x0F) << 8);
+    uint16_t hlow = (uint16_t)hll | ((uint16_t)(hlh & 0x0F) << 8);
+    uint16_t vtotal = (uint16_t)vtl | ((uint16_t)(vth & 0x07) << 8);
+
+    uint8_t hp0 = 0, hp1 = 0, vp1 = 0, s09 = 0;
+    rc |= gbs_reg_read_byte(0, 0x06, &hp0); rc |= gbs_reg_read_byte(0, 0x07, &hp1);
+    rc |= gbs_reg_read_byte(0, 0x08, &vp1); rc |= gbs_reg_read_byte(0, 0x09, &s09);
+    if (rc != 0) { printf("  読取エラー (%d)\r\n\r\n", rc); return; }
+    uint16_t hperiod = (uint16_t)hp0 | ((uint16_t)(hp1 & 0x01) << 8);
+    uint16_t vperiod = ((uint16_t)(hp1 >> 1)) | ((uint16_t)(vp1 & 0x0F) << 7);
+    float fieldRate = 0.0f;
+    if (hperiod > 0 && vtotal > 0) {
+        fieldRate = (27.0f * 1000000.0f) / (4.0f * (float)hperiod * (float)vtotal);
+    }
+    float hus = ((float)hperiod * 4.0f) / 27.0f;
+
+    printf("  水平: 周期=%u (%.1fus)  総ドット=%u  同期幅=%u\r\n", hperiod, hus, htotal, hlow);
+    printf("  垂直: 周期=%u  総ライン=%u\r\n", vperiod, vtotal);
+    printf("  フィールドレート: %.2f Hz  PLL: %s\r\n",
+           fieldRate, ((s09 >> 7) & 0x01) ? "ロック" : "非ロック");
 
     if (rto) {
-        printf("  videoStdInput=%d srcDisconnected=%d lowPower=%d\r\n",
-               rto->videoStandardInput, rto->sourceDisconnected, rto->isInLowPowerMode);
+        const char *vstd = "不明";
+        switch (rto->videoStandardInput) {
+            case 1: vstd = "NTSC/480i"; break;
+            case 2: vstd = "PAL/576i"; break;
+            case 3: vstd = "HDTV"; break;
+            case 14: vstd = "VGA/PC"; break;
+        }
+        printf("  入力規格: %s(%d)  接続: %s  省電力: %s\r\n",
+               vstd, rto->videoStandardInput,
+               rto->sourceDisconnected ? "切断" : "接続中",
+               rto->isInLowPowerMode ? "ON" : "OFF");
+        printf("  同期: noSync=%u  安定度=%u  SOGレベル=%u\r\n",
+               (unsigned)rto->noSyncCounter, (unsigned)rto->continousStableCounter,
+               (unsigned)rto->currentLevelSOG);
     }
-    printf("====================================\r\n\r\n");
+    printf("=========================\r\n\r\n");
 }
 
 static void cmd_show_config(void)
@@ -438,7 +446,8 @@ static void cmd_show_config(void)
     printf("  ftlMethod         : %d\r\n", uopt->frameTimeLockMethod);
     printf("  tap6              : %d\r\n", uopt->wantTap6);
     printf("  disableExtClkGen  : %d\r\n", uopt->disableExternalClockGenerator);
-    printf("  rotaryEncoder     : %d\r\n", uopt->enableRotaryEncoder);
+    printf("  inputMode(build)  : %s\r\n", PINCFG_USE_ROTARY_ENCODER ? "r-encoder" : "d-pad");
+    printf("  AP SSID           : %s\r\n", ap_ssid);
     if (rto) {
         printf("--- Runtime [temp] ---\r\n");
         printf("  videoStdInput     : %d\r\n", rto->videoStandardInput);
@@ -487,7 +496,7 @@ static void cmd_set(int ntok, char *tok[])
         /* 23 */ "color",
         /* 24 */ "defaults",
         /* 25 */ "ota",
-        /* 26 */ "input",
+        /* 26 */ "ssid",
     };
     int ki = resolve_abbrev(tok[1], keys, ARRAY_SIZE(keys));
     if (ki == -2) { print_ambiguous(tok[1], keys, ARRAY_SIZE(keys)); return; }
@@ -525,16 +534,6 @@ static void cmd_set(int ntok, char *tok[])
     if (str_eq(key, "autogain"))     { send_sc('T', "[saved] Auto ADC gain toggle"); return; }
     if (str_eq(key, "matched"))      { send_sc('Z', "[saved] Matched presets toggle"); return; }
     if (str_eq(key, "upscaling"))    { send_uc('x', "[saved] Low-res upscaling toggle"); return; }
-    if (str_eq(key, "input")) {
-        if (ntok < 3) { printf("Usage: set input <r-encoder|d-pad>\r\n"); return; }
-        if      (str_eq(tok[2], "r-encoder"))
-            send_uc('I', "[saved] Input -> Rotary Encoder (reboot)");
-        else if (str_eq(tok[2], "d-pad"))
-            send_uc('J', "[saved] Input -> Geometry + Mode LED (reboot)");
-        else
-            printf("Unknown: %s (r-encoder|d-pad)\r\n", tok[2]);
-        return;
-    }
 
     /* --- Deinterlacer [saved] --- */
     if (str_eq(key, "deint")) {
@@ -584,6 +583,33 @@ static void cmd_set(int ntok, char *tok[])
     /* --- System --- */
     if (str_eq(key, "defaults")) { send_uc('1', "Reset to defaults + reboot"); return; }
     if (str_eq(key, "ota"))      { send_sc('c', "[temp] OTA update enabled"); return; }
+
+    /* --- SSID [saved] --- */
+    if (str_eq(key, "ssid")) {
+        if (ntok < 3) {
+            printf("現在のSSID: %s\r\n", ap_ssid);
+            printf("Usage: set ssid <name> | set ssid reset\r\n");
+            return;
+        }
+        if (str_eq(tok[2], "reset")) {
+            if (gbs_set_custom_ssid(NULL)) {
+                printf("[saved] SSID -> デフォルト (%s)\r\n", ap_ssid);
+            } else {
+                printf("SSID リセット失敗\r\n");
+            }
+            return;
+        }
+        if (strlen(tok[2]) > 23) {
+            printf("SSIDが長すぎます (最大23文字)\r\n");
+            return;
+        }
+        if (gbs_set_custom_ssid(tok[2])) {
+            printf("[saved] SSID -> '%s'\r\n", ap_ssid);
+        } else {
+            printf("SSID 保存失敗\r\n");
+        }
+        return;
+    }
 }
 
 /* ==========================================================
@@ -859,16 +885,52 @@ static void log_task_fn(void *arg)
 {
     (void)arg;
     while (shell_log_enabled) {
-        uint8_t hpl = 0, hph = 0, vpl = 0, vph = 0;
-        gbs_reg_read_byte(0, 0x07, &hpl); gbs_reg_read_byte(0, 0x08, &hph);
-        gbs_reg_read_byte(0, 0x0A, &vpl); gbs_reg_read_byte(0, 0x0B, &vph);
-        uint16_t hp = (uint16_t)hpl | ((uint16_t)(hph & 0x0F) << 8);
-        uint16_t vp = (uint16_t)vpl | ((uint16_t)(vph & 0x0F) << 8);
-        float hus = ((float)hp * 4.0f) / 27.0f;
-        float vms = hus * (float)vp / 1000.0f;
-        float fps = (vms > 0) ? (1000.0f / vms) : 0;
+        uint8_t r06 = 0, r07 = 0, r08 = 0;
+        uint8_t r09 = 0;
+        uint8_t r17 = 0, r18 = 0;
+        uint8_t r19 = 0, r1a = 0;
+        uint8_t r1b = 0, r1c = 0;
+
+        int rc = 0;
+        rc = gbs_reg_read_byte(0, 0x06, &r06);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x07, &r07);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x08, &r08);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x09, &r09);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x17, &r17);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x18, &r18);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x19, &r19);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x1A, &r1a);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x1B, &r1b);
+        if (rc == 0) rc = gbs_reg_read_byte(0, 0x1C, &r1c);
+
         uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        printf("[%lu] H=%u V=%u FPS=%.2f\r\n", (unsigned long)now, hp, vp, fps);
+        if (rc == -2) {
+            printf("[%lu] log: queue busy\r\n", (unsigned long)now);
+        } else if (rc != 0) {
+            printf("[%lu] log: read error (%d)\r\n", (unsigned long)now, rc);
+        } else {
+            uint16_t hperiod = (uint16_t)r06 | ((uint16_t)(r07 & 0x01) << 8);
+            uint16_t vperiod = ((uint16_t)(r07 >> 1)) | ((uint16_t)(r08 & 0x0F) << 7);
+            uint16_t htotal = (uint16_t)r17 | ((uint16_t)(r18 & 0x0F) << 8);
+            uint16_t hlow = (uint16_t)r19 | ((uint16_t)(r1a & 0x0F) << 8);
+            uint16_t vtotal = (uint16_t)r1b | ((uint16_t)(r1c & 0x07) << 8);
+            uint8_t pllad_lock = (r09 >> 7) & 0x01;
+
+            // vtotal = per-field line count from sync processor (~262 for NTSC).
+            float fieldRate = 0.0f;
+            if (hperiod > 0 && vtotal > 0) {
+                fieldRate = (27.0f * 1000000.0f) / (4.0f * (float)hperiod * (float)vtotal);
+            }
+            float hus = ((float)hperiod * 4.0f) / 27.0f;
+
+            printf("[%lu] %.1fHz H周期=%u(%.0fus) V周期=%u Hﾄﾀﾙ=%u Vﾗｲﾝ=%u H同期幅=%u PLL:%s noSync=%u 安定=%u\r\n",
+                   (unsigned long)now,
+                   fieldRate, hperiod, hus, vperiod,
+                   htotal, vtotal, hlow,
+                   pllad_lock ? "固定" : "--",
+                   rto ? (unsigned)rto->noSyncCounter : 0,
+                   rto ? (unsigned)rto->continousStableCounter : 0);
+        }
         vTaskDelay(pdMS_TO_TICKS(500));
     }
     s_log_task = NULL;
@@ -945,13 +1007,13 @@ static const char *const s_set_keys[] = {
     "autogain", "matched", "upscaling", "deint",
     "adcfilter", "oversample", "syncwatcher", "freeze",
     "brightness", "contrast", "gain", "color",
-    "defaults", "ota", "input"
+    "defaults", "ota", "ssid"
 };
 
 static const char *const s_reso_opts[] = { "960p", "480p", "720p", "1024p", "1080p", "downscale" };
 static const char *const s_deint_opts[] = { "bob", "ma" };
-static const char *const s_input_opts[] = { "r-encoder", "d-pad" };
 static const char *const s_color_opts[] = { "reset", "info" };
+static const char *const s_ssid_opts[] = { "reset" };
 static const char *const s_pm_opts[] = { "+", "-" };
 static const char *const s_dir_opts[] = { "l", "r", "u", "d" };
 static const char *const s_show_opts[] = { "status", "config" };
@@ -1008,16 +1070,16 @@ static bool get_completion_ctx(const char *line, int len,
                 *opts = s_deint_opts; *cnt = ARRAY_SIZE(s_deint_opts);
                 *prefix = sub_pfx; return true;
             }
-            if (str_eq(k, "input")) {
-                *opts = s_input_opts; *cnt = ARRAY_SIZE(s_input_opts);
-                *prefix = sub_pfx; return true;
-            }
             if (str_eq(k, "color")) {
                 *opts = s_color_opts; *cnt = ARRAY_SIZE(s_color_opts);
                 *prefix = sub_pfx; return true;
             }
             if (str_eq(k, "brightness") || str_eq(k, "contrast") || str_eq(k, "gain")) {
                 *opts = s_pm_opts; *cnt = ARRAY_SIZE(s_pm_opts);
+                *prefix = sub_pfx; return true;
+            }
+            if (str_eq(k, "ssid")) {
+                *opts = s_ssid_opts; *cnt = ARRAY_SIZE(s_ssid_opts);
                 *prefix = sub_pfx; return true;
             }
         }

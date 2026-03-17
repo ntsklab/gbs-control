@@ -148,6 +148,7 @@ void StrClear(char *str, uint16_t length);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 void savePresetToSPIFFS();
 void saveUserPrefs();
+bool gbs_set_custom_ssid(const char *ssid);
 void settingsMenuOLED();
 void pointerfunction();
 void subpointerfunction();

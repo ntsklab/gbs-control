@@ -131,6 +131,12 @@ void attachInterrupt(uint8_t pin, voidFuncPtr handler, int mode)
 void detachInterrupt(uint8_t pin)
 {
     if (pin >= GPIO_NUM_MAX) return;
+    if (!gpio_isr_service_installed) {
+        isr_handlers[pin] = nullptr;
+        return;
+    }
+    gpio_intr_disable((gpio_num_t)pin);
+    gpio_set_intr_type((gpio_num_t)pin, GPIO_INTR_DISABLE);
     gpio_isr_handler_remove((gpio_num_t)pin);
     isr_handlers[pin] = nullptr;
 }
@@ -328,6 +334,17 @@ void WiFiClass::softAP(const char *ssid, const char *password, int channel, int 
     ap_config.ap.max_connection = 4;
     ap_config.ap.ssid_hidden = ssid_hidden;
 
+    _mode = WIFI_AP;
+
+    /* If WiFi is already started, stop it first so the new AP config
+     * (including SSID) takes effect in beacons.  esp_wifi_start() returns
+     * ESP_ERR_WIFI_STARTED if called when already running. */
+    wifi_mode_t cur;
+    bool was_running = (esp_wifi_get_mode(&cur) == ESP_OK && cur != WIFI_MODE_NULL);
+    if (was_running) {
+        esp_wifi_stop();
+    }
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -436,6 +453,9 @@ void WiFiClass::setSleepMode(int sleepType)
 {
     if (sleepType == WIFI_NONE_SLEEP) {
         esp_wifi_set_ps(WIFI_PS_NONE);
+    } else if (sleepType == WIFI_LIGHT_SLEEP) {
+        // Closest ESP-IDF equivalent to ESP8266 light sleep behavior.
+        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     }
 }
 

@@ -41,10 +41,12 @@ TwoWire::TwoWire(int bus_num)
     , _rxLength(0)
     , _rxIndex(0)
     , _devCacheCount(0)
+    , _mutex(nullptr)
 {
     memset(_txBuffer, 0, sizeof(_txBuffer));
     memset(_rxBuffer, 0, sizeof(_rxBuffer));
     memset(_devCache, 0, sizeof(_devCache));
+    _mutex = xSemaphoreCreateRecursiveMutex();
 }
 
 TwoWire::~TwoWire()
@@ -56,6 +58,10 @@ TwoWire::~TwoWire()
     }
     if (_bus_handle) {
         i2c_del_master_bus(_bus_handle);
+    }
+    if (_mutex) {
+        vSemaphoreDelete(_mutex);
+        _mutex = nullptr;
     }
 }
 
@@ -167,6 +173,7 @@ i2c_master_dev_handle_t TwoWire::getDevHandle(uint8_t address)
 
 void TwoWire::beginTransmission(uint8_t address)
 {
+    if (_mutex) xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     _txAddress = address;
     _txLength = 0;
 }
@@ -176,7 +183,10 @@ uint8_t TwoWire::endTransmission(bool sendStop)
     if (!_initialized) return 4; // other error
 
     i2c_master_dev_handle_t dev = getDevHandle(_txAddress);
-    if (!dev) return 4;
+    if (!dev) {
+        if (_mutex) xSemaphoreGiveRecursive(_mutex);
+        return 4;
+    }
 
     esp_err_t ret;
     if (_txLength == 0) {
@@ -188,6 +198,7 @@ uint8_t TwoWire::endTransmission(bool sendStop)
     }
     _txLength = 0;
 
+    if (_mutex) xSemaphoreGiveRecursive(_mutex);
     if (ret == ESP_OK) return 0;           // success
     if (ret == ESP_ERR_TIMEOUT) return 5;  // timeout
     return 2;                              // NACK on address
@@ -198,18 +209,25 @@ size_t TwoWire::requestFrom(uint8_t address, size_t quantity, bool sendStop)
     if (!_initialized) return 0;
     if (quantity > I2C_BUFFER_LENGTH) quantity = I2C_BUFFER_LENGTH;
 
+    if (_mutex) xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
+
     i2c_master_dev_handle_t dev = getDevHandle(address);
-    if (!dev) return 0;
+    if (!dev) {
+        if (_mutex) xSemaphoreGiveRecursive(_mutex);
+        return 0;
+    }
 
     esp_err_t ret = i2c_master_receive(dev, _rxBuffer, quantity, 50);
     if (ret != ESP_OK) {
         _rxLength = 0;
         _rxIndex = 0;
+        if (_mutex) xSemaphoreGiveRecursive(_mutex);
         return 0;
     }
 
     _rxLength = quantity;
     _rxIndex = 0;
+    if (_mutex) xSemaphoreGiveRecursive(_mutex);
     return quantity;
 }
 
