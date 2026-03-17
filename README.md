@@ -2,7 +2,7 @@
 
 This repository was created using generative AI.
 
-このリポジトリは `gbs-control` を ESP-IDF 環境 ESP32-C3ターゲットへ移植・拡張したものです。
+このリポジトリは `gbs-control` を ESP-IDF 環境 ESP32-C3 / ESP32-C6 ターゲットへ移植したものです。
 主要な改変点は以下です。
 
 - 実行基盤の変更: `app_main()`（ESP-IDF）から `gbs_task` を起動し、`gbs_setup()` / `gbs_loop()` を駆動

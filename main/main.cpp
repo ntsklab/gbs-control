@@ -1,6 +1,6 @@
 /**
  * GBS-Control ESP-IDF Port - Main Entry Point
- * Target: XIAO ESP32-C3
+ * Target: XIAO ESP32-C3 / ESP32-C6
  *
  * This file provides the ESP-IDF app_main() entry point which
  * calls the Arduino-style setup() and loop() functions from gbs_control.
@@ -38,7 +38,7 @@ static void gbs_task(void *pvParameters)
 extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "GBS-Control ESP-IDF Port");
-    ESP_LOGI(TAG, "Target: XIAO ESP32-C3");
+    ESP_LOGI(TAG, "Target: XIAO ESP32-C3 / ESP32-C6");
 
     // Initialize NVS (required for WiFi)
     esp_err_t ret = nvs_flash_init();
