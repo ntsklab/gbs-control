@@ -125,7 +125,14 @@ static inline void delayMicroseconds(unsigned int us)
 
 static inline void yield()
 {
-    vTaskDelay(1);
+    // ESP8266 yield() does a cooperative scheduler handoff that returns
+    // near-instantly. vTaskDelay(1) would impose a fixed 1ms sleep per call,
+    // which accumulates disastrously (e.g. setExternalClockGenFrequencySmooth:
+    // 750 steps × 1ms = 750ms → GBS loses sync).
+    // taskYIELD() is the correct equivalent: give equal-priority tasks a chance
+    // to run but return immediately if none are ready.
+    // WDT safety: main loop uses vTaskDelay(1) so the IDLE task stays alive.
+    taskYIELD();
 }
 
 // ==================== GPIO functions ====================

@@ -80,6 +80,15 @@ note right of compat_cpp
   - 必要最小APIのみ実装
   - 一部APIはスタブ/No-op
   - 完全なArduino互換は目的外
+  - yield() = taskYIELD() (vTaskDelay(1) 非推奨)
+end note
+
+note right of wire_cpp
+  スレッド安全:
+  - 再帰 Mutex (xSemaphoreCreateRecursiveMutex)
+  - beginTransmission/endTransmission/requestFrom で自動ロック
+  - tw.h の lockBus/unlockBus と組み合わせて
+    複数タスクからの安全な I2C アクセスを実現
 end note
 
 note bottom of app
