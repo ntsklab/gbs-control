@@ -47,7 +47,11 @@
 - `micros()` -> `esp_timer_get_time()`
 - `delay(ms)` -> `vTaskDelay(pdMS_TO_TICKS(ms))`（`ms==0` は `taskYIELD()`）
 - `delayMicroseconds(us)` -> `esp_rom_delay_us(us)`
-- `yield()` -> `vTaskDelay(1)`
+- `yield()` -> `taskYIELD()`
+
+> **注意**: `yield()` は `vTaskDelay(1)` ではなく `taskYIELD()` を使う。
+> `setExternalClockGenFrequencySmooth` など 750 回以上ループする箇所では
+> `vTaskDelay(1)` を使うと 750ms 以上の遅延が発生し GBS が同期を失う。
 
 実装: `components/compat/include/Arduino.h`
 
@@ -83,6 +87,13 @@
 実装:
 - `components/compat/include/Wire.h`
 - `components/compat/Wire.cpp`
+
+スレッド安全性:
+- `TwoWire` は `xSemaphoreCreateRecursiveMutex()` で生成した再帰 Mutex を内部に持つ
+- `beginTransmission()` / `endTransmission()` / `requestFrom()` の前後で `xSemaphoreTakeRecursive` / `xSemaphoreGiveRecursive` を実行
+- 再帰 Mutex のため、同一タスクからネストしたロックは安全に通過する
+- `tw.h` の `lockBus()` / `unlockBus()` パターンと組み合わせることで、複数タスクからの I2C アクセスを安全に排他制御できる
+- `shell_i2c_bridge` は `GBS::read/write` の薄いラッパ。キュー・ポーリング不要。
 
 補足:
 - アドレスごとに `i2c_master_dev_handle_t` をキャッシュ（最大4）
@@ -156,6 +167,9 @@
 - 互換層は「必要APIだけ」を対象にしているため、Arduinoライブラリ追加時は不足APIが出る可能性がある
 - `Wire` は ESP-IDF I2C master の仕様に合わせたため、Arduino環境とタイミング挙動が完全一致しない場合がある
 - `WebServerCompat` は esp_http_server ベースのため、ESPAsyncWebServer の厳密挙動（イベント順・一部機能）は差異があり得る
+- `yield()` は必ず `taskYIELD()` を使うこと。`vTaskDelay(1)` への差し戻しは GBS 映像出力の破綻を招く
+- FreeRTOS 上で複数タスクが並行動作するため、GBS レジスタへの I2C アクセスは必ず `tw.h` の `lockBus()` / `GBS::read` / `GBS::write` 経由で行うこと
+- D-pad るーティング: `geometry_buttons_init()` が D-pad ISR を登録。`PINCFG_USE_ROTARY_ENCODER=0` のときのみ有効
 
 ## 7. 拡張ポイント（将来）
 
