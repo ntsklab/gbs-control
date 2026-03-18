@@ -1,15 +1,27 @@
 # gbs-control-esp
 
-このリポジトリは `gbs-control` を ESP-IDF 環境へ移植・拡張したものです。
-サポート対象ターゲット: **XIAO ESP32-C3** / **XIAO ESP32-C6** (RISC-V)
+このブランチは `esp-idf` をベースにした **ESP-IDF 移植版 + 機能追加版** です。
+対象ボードは **Seeed XIAO ESP32-C3 / XIAO ESP32-C6** で、移植に加えてローカル操作系と BLE shell を拡張しています。
 
-主要な改変点は以下です。
+`esp-idf` から追加されているもの:
 
-- 実行基盤の変更: `app_main()`（ESP-IDF）から `gbs_task` を起動し、`gbs_setup()` / `gbs_loop()` を駆動
-- 制御チャネルの追加: BLEシリアルシェル（NimBLE/NUS）を独立タスクで実行し、WebUIと同等の設定操作経路を提供
-- 通信処理の整理: Webサーバー・WebSocket・mDNS・DNS・OTAを `handleWiFi()` と `startWebserver()` を中心に統合
-- ストレージ運用: SPIFFS上でユーザー設定・プリセットスロットを管理（Web API経由で保存/読込）
-- ハード制御維持: GBS8200レジスタ制御、同期監視（`runSyncWatcher()`）、プリセット適用（`applyPresets()`）の既存ロジックを継承
+- 物理 D-pad によるジオメトリ操作タスク (`geometry_buttons.cpp`)
+- ビルド時入力モード切替 (`PINCFG_USE_ROTARY_ENCODER`)
+- モードボタン / モード LED を使ったローカル入力切替
+- `shell_i2c_bridge` を経由した BLE shell からの安全なレジスタアクセス
+- BLE shell の拡張コマンド
+- `slot list` / `slot set` / `slot save` / `slot remove`
+- `set ssid <name>` / `set ssid reset`
+- 追加の状態表示とデバッグ出力
+- compat 層の追加修正
+- `yield()` の ESP8266 相当動作への修正
+- `Wire` の再帰 mutex による I2C 排他
+- WiFi AP 再起動反映と `detachInterrupt()` ガード
+
+現在の既定値:
+
+- `pin_config.h` では `PINCFG_USE_ROTARY_ENCODER 0` が設定されており、既定では D-pad モードです
+- ロータリーエンコーダ運用に戻す場合は `pin_config.h` を変更して再ビルドしてください
 
 ## ビルド手順
 
@@ -27,8 +39,13 @@ idf.py build
 idf.py flash monitor
 ```
 
-> **Note:** `idf.py set-target` を実行すると `build/` と `sdkconfig` がリセットされます。
+> `idf.py set-target` を実行すると `build/` と `sdkconfig` がリセットされます。
 > ターゲット変更時は再度 `idf.py build` を実行してください。
+
+## ブランチ構成
+
+- `esp-idf`: upstream 追従を意識した移植版の本流
+- `esp-idf-ext`: D-pad / 拡張 shell / 追加互換修正を含む機能追加版
 
 ## ドキュメント
 
