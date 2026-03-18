@@ -23,6 +23,16 @@
 - `pin_config.h` では `PINCFG_USE_ROTARY_ENCODER 0` が設定されており、既定では D-pad モードです
 - ロータリーエンコーダ運用に戻す場合は `pin_config.h` を変更して再ビルドしてください
 
+配線メモ（現行デフォルト）:
+
+- `DEBUG_IN_PIN` は C3/C6 ともに **XIAO D6(TX)** を使用
+	- C3: `GPIO21` (`D6`)
+	- C6: `GPIO16` (`D6`)
+- `DEBUG_IN_PIN` を使う場合、同じ `D6` を外部UART用途と共有しないでください
+- I2C は従来どおり:
+	- C3: `SDA=GPIO6(D4)`, `SCL=GPIO7(D5)`
+	- C6: `SDA=GPIO22(D4)`, `SCL=GPIO23(D5)`
+
 ## ビルド手順
 
 ```bash

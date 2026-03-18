@@ -220,6 +220,10 @@ struct runTimeOptions *rto = &rtos;
 struct userOptions uopts;
 struct userOptions *uopt = &uopts;
 struct adcOptions adcopts;
+static inline bool useDebugPinMeasurements()
+{
+    return (uopt && uopt->useDebugPinMeasurements);
+}
 struct adcOptions *adco = &adcopts;
 
 String slotIndexMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~()!*:,";
@@ -732,6 +736,11 @@ void writeProgramArrayNew(const uint8_t *programArray, boolean skipMDSection)
 
 void activeFrameTimeLockInitialSteps()
 {
+    if (!useDebugPinMeasurements()) {
+        SerialM.println(F("Active FrameTime Lock: DEBUG pin measurement is disabled"));
+        return;
+    }
+
     // skip if using external clock gen
     if (rto->extClockGenDetected) {
         SerialM.println(F("Active FrameTime Lock enabled, adjusting external clock gen frequency"));
@@ -2722,6 +2731,12 @@ void fastGetBestHtotal()
 
 boolean runAutoBestHTotal()
 {
+    if (!useDebugPinMeasurements()) {
+        // Keep frame-sync state clean when debug pin sampling is disabled.
+        FrameSync::resetWithoutRecalculation();
+        return true;
+    }
+
     if (!FrameSync::ready() && rto->autoBestHtotalEnabled == true && rto->videoStandardInput > 0 && rto->videoStandardInput < 15) {
 
         //Serial.println("running");
@@ -3095,6 +3110,10 @@ boolean applyBestHTotal(uint16_t bestHTotal)
 
 float getSourceFieldRate(boolean useSPBus)
 {
+    if (!useDebugPinMeasurements()) {
+        return 0;
+    }
+
     double esp8266_clock_freq = ESP.getCpuFreqMHz() * 1000000;
     uint8_t testBusSelBackup = GBS::TEST_BUS_SEL::read();
     uint8_t spBusSelBackup = GBS::TEST_BUS_SP_SEL::read();
@@ -3155,6 +3174,10 @@ float getSourceFieldRate(boolean useSPBus)
 
 float getOutputFrameRate()
 {
+    if (!useDebugPinMeasurements()) {
+        return 0;
+    }
+
     double esp8266_clock_freq = ESP.getCpuFreqMHz() * 1000000;
     uint8_t testBusSelBackup = GBS::TEST_BUS_SEL::read();
     uint8_t debugPinBackup = GBS::PAD_BOUT_EN::read();
@@ -3193,6 +3216,10 @@ float getOutputFrameRate()
 // used for RGBHV to determine the ADPLL speed "level" / can jitter with SOG Sync
 uint32_t getPllRate()
 {
+    if (!useDebugPinMeasurements()) {
+        return 0;
+    }
+
     uint32_t esp8266_clock_freq = ESP.getCpuFreqMHz() * 1000000;
     uint8_t testBusSelBackup = GBS::TEST_BUS_SEL::read();
     uint8_t spBusSelBackup = GBS::TEST_BUS_SP_SEL::read();
@@ -7122,6 +7149,7 @@ void loadDefaultUserOptions()
     uopt->enableCalibrationADC = 1;          // #17
     uopt->scanlineStrength = 0x30;           // #18
     uopt->disableExternalClockGenerator = 0; // #19
+    uopt->useDebugPinMeasurements = 1;       // #20
 }
 
 //RF_PRE_INIT() {
@@ -7443,6 +7471,10 @@ void gbs_setup()
             uopt->disableExternalClockGenerator = (uint8_t)(f.read() - '0'); // #19
             if (uopt->disableExternalClockGenerator > 1)
                 uopt->disableExternalClockGenerator = 0;
+
+            uopt->useDebugPinMeasurements = (uint8_t)(f.read() - '0'); // #20
+            if (uopt->useDebugPinMeasurements > 1)
+                uopt->useDebugPinMeasurements = 1;
 
             f.close();
         }
@@ -8397,13 +8429,27 @@ void gbs_loop()
                 // we have a multibyte command
                 if (inputStage > 0) {
                     if (inputStage == 1) {
+                        if (!Serial.available()) {
+                            discardSerialRxData();
+                            inputStage = 0;
+                            SerialM.println("abort");
+                            break;
+                        }
                         segmentCurrent = Serial.parseInt();
                         SerialM.print("G");
                         SerialM.print(segmentCurrent);
                     } else if (inputStage == 2) {
+                        int c0 = Serial.read();
+                        int c1 = Serial.read();
+                        if (c0 < 0 || c1 < 0) {
+                            discardSerialRxData();
+                            inputStage = 0;
+                            SerialM.println("abort");
+                            break;
+                        }
                         char szNumbers[3];
-                        szNumbers[0] = Serial.read();
-                        szNumbers[1] = Serial.read();
+                        szNumbers[0] = (char)c0;
+                        szNumbers[1] = (char)c1;
                         szNumbers[2] = '\0';
                         //char * pEnd;
                         registerCurrent = strtol(szNumbers, NULL, 16);
@@ -8427,22 +8473,38 @@ void gbs_loop()
                 // we have a multibyte command
                 if (inputStage > 0) {
                     if (inputStage == 1) {
+                        if (!Serial.available()) {
+                            discardSerialRxData();
+                            inputStage = 0;
+                            SerialM.println("abort");
+                            break;
+                        }
                         segmentCurrent = Serial.parseInt();
                         SerialM.print("S");
                         SerialM.print(segmentCurrent);
                     } else if (inputStage == 2) {
                         char szNumbers[3];
+                        bool aborted = false;
                         for (uint8_t a = 0; a <= 1; a++) {
                             // ascii 0x30 to 0x39 for '0' to '9'
-                            if ((Serial.peek() >= '0' && Serial.peek() <= '9') ||
-                                (Serial.peek() >= 'a' && Serial.peek() <= 'f') ||
-                                (Serial.peek() >= 'A' && Serial.peek() <= 'F')) {
-                                szNumbers[a] = Serial.read();
+                            int p = Serial.peek();
+                            if (p < 0) {
+                                discardSerialRxData();
+                                inputStage = 0;
+                                SerialM.println("abort");
+                                aborted = true;
+                                break;
+                            }
+                            if ((p >= '0' && p <= '9') ||
+                                (p >= 'a' && p <= 'f') ||
+                                (p >= 'A' && p <= 'F')) {
+                                szNumbers[a] = (char)Serial.read();
                             } else {
                                 szNumbers[a] = 0; // NUL char
                                 Serial.read();    // but consume the char
                             }
                         }
+                        if (aborted) break;
                         szNumbers[2] = '\0';
                         //char * pEnd;
                         registerCurrent = strtol(szNumbers, NULL, 16);
@@ -8450,16 +8512,26 @@ void gbs_loop()
                         SerialM.print(registerCurrent, HEX);
                     } else if (inputStage == 3) {
                         char szNumbers[3];
+                        bool aborted = false;
                         for (uint8_t a = 0; a <= 1; a++) {
-                            if ((Serial.peek() >= '0' && Serial.peek() <= '9') ||
-                                (Serial.peek() >= 'a' && Serial.peek() <= 'f') ||
-                                (Serial.peek() >= 'A' && Serial.peek() <= 'F')) {
-                                szNumbers[a] = Serial.read();
+                            int p = Serial.peek();
+                            if (p < 0) {
+                                discardSerialRxData();
+                                inputStage = 0;
+                                SerialM.println("abort");
+                                aborted = true;
+                                break;
+                            }
+                            if ((p >= '0' && p <= '9') ||
+                                (p >= 'a' && p <= 'f') ||
+                                (p >= 'A' && p <= 'F')) {
+                                szNumbers[a] = (char)Serial.read();
                             } else {
                                 szNumbers[a] = 0; // NUL char
                                 Serial.read();    // but consume the char
                             }
                         }
+                        if (aborted) break;
                         szNumbers[2] = '\0';
                         //char * pEnd;
                         inputToogleBit = strtol(szNumbers, NULL, 16);
@@ -8486,22 +8558,38 @@ void gbs_loop()
                 // we have a multibyte command
                 if (inputStage > 0) {
                     if (inputStage == 1) {
+                        if (!Serial.available()) {
+                            discardSerialRxData();
+                            inputStage = 0;
+                            SerialM.println("abort");
+                            break;
+                        }
                         segmentCurrent = Serial.parseInt();
                         SerialM.print("T");
                         SerialM.print(segmentCurrent);
                     } else if (inputStage == 2) {
                         char szNumbers[3];
+                        bool aborted = false;
                         for (uint8_t a = 0; a <= 1; a++) {
                             // ascii 0x30 to 0x39 for '0' to '9'
-                            if ((Serial.peek() >= '0' && Serial.peek() <= '9') ||
-                                (Serial.peek() >= 'a' && Serial.peek() <= 'f') ||
-                                (Serial.peek() >= 'A' && Serial.peek() <= 'F')) {
-                                szNumbers[a] = Serial.read();
+                            int p = Serial.peek();
+                            if (p < 0) {
+                                discardSerialRxData();
+                                inputStage = 0;
+                                SerialM.println("abort");
+                                aborted = true;
+                                break;
+                            }
+                            if ((p >= '0' && p <= '9') ||
+                                (p >= 'a' && p <= 'f') ||
+                                (p >= 'A' && p <= 'F')) {
+                                szNumbers[a] = (char)Serial.read();
                             } else {
                                 szNumbers[a] = 0; // NUL char
                                 Serial.read();    // but consume the char
                             }
                         }
+                        if (aborted) break;
                         szNumbers[2] = '\0';
                         //char * pEnd;
                         registerCurrent = strtol(szNumbers, NULL, 16);
@@ -8574,7 +8662,7 @@ void gbs_loop()
                 uint16_t value = 0;
                 String what = Serial.readStringUntil(' ');
 
-                if (what.length() > 5) {
+                if (what.length() == 0 || what.length() > 5) {
                     SerialM.println(F("abort"));
                     inputStage = 0;
                     break;
@@ -8742,7 +8830,7 @@ void gbs_loop()
     }
 
     // run FrameTimeLock if enabled
-    if (uopt->enableFrameTimeLock && rto->sourceDisconnected == false && rto->autoBestHtotalEnabled &&
+    if (uopt->enableFrameTimeLock && useDebugPinMeasurements() && rto->sourceDisconnected == false && rto->autoBestHtotalEnabled &&
         rto->syncWatcherEnabled && FrameSync::ready() && millis() - lastVsyncLock > FrameSyncAttrs::lockInterval && rto->continousStableCounter > 20 && rto->noSyncCounter == 0)
     {
         uint16_t htotal = GBS::STATUS_SYNC_PROC_HTOTAL::read();
@@ -8824,7 +8912,7 @@ void gbs_loop()
     }
 
     // init frame sync + besthtotal routine
-    if (rto->autoBestHtotalEnabled && !FrameSync::ready() && rto->syncWatcherEnabled) {
+    if (useDebugPinMeasurements() && rto->autoBestHtotalEnabled && !FrameSync::ready() && rto->syncWatcherEnabled) {
         if (rto->continousStableCounter >= 10 && rto->coastPositionIsSet &&
             ((millis() - lastVsyncLock) > 500)) {
             if ((rto->continousStableCounter % 5) == 0) { // 5, 10, 15, .., 255
@@ -10267,6 +10355,7 @@ void saveUserPrefs()
     f.write(uopt->enableCalibrationADC + '0');          // #17
     f.write(uopt->scanlineStrength + '0');              // #18
     f.write(uopt->disableExternalClockGenerator + '0'); // #19
+    f.write(uopt->useDebugPinMeasurements + '0');       // #20
     f.close();
 }
 

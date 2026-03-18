@@ -15,6 +15,8 @@
 #include "esp_spiffs.h"
 #include "driver/gpio.h"
 #include "driver/uart.h"
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_select.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_event.h"
@@ -149,6 +151,27 @@ void HardwareSerial::begin(unsigned long baud, uint32_t config, int rxPin, int t
 {
     if (_initialized) return;
 
+    // If console is configured as USB Serial/JTAG only, use USB for Serial(0)
+    // unless the caller explicitly requests UART pins.
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) && (CONFIG_ESP_CONSOLE_UART_NUM == -1)
+    if (_uart_num == 0 && rxPin < 0 && txPin < 0) {
+        if (!usb_serial_jtag_is_driver_installed()) {
+            usb_serial_jtag_driver_config_t usb_cfg = {
+                .tx_buffer_size = 1024,
+                .rx_buffer_size = 256,
+            };
+            ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_cfg));
+        }
+        _use_usb_jtag = true;
+        _initialized = true;
+        (void)baud;
+        (void)config;
+        return;
+    }
+#endif
+
+    _use_usb_jtag = false;
+
     uart_config_t uart_config = {};
     uart_config.baud_rate = baud;
     uart_config.data_bits = UART_DATA_8_BITS;
@@ -171,14 +194,22 @@ void HardwareSerial::begin(unsigned long baud, uint32_t config, int rxPin, int t
 void HardwareSerial::end()
 {
     if (_initialized) {
-        uart_driver_delete((uart_port_t)_uart_num);
+        if (!_use_usb_jtag) {
+            uart_driver_delete((uart_port_t)_uart_num);
+        }
         _initialized = false;
+        _use_usb_jtag = false;
+        _peek_char = -1;
     }
 }
 
 int HardwareSerial::available()
 {
     if (!_initialized) return 0;
+    if (_use_usb_jtag) {
+        if (!usb_serial_jtag_is_connected()) return (_peek_char >= 0 ? 1 : 0);
+        return (int)usb_serial_jtag_get_read_bytes_available() + (_peek_char >= 0 ? 1 : 0);
+    }
     size_t len = 0;
     uart_get_buffered_data_len((uart_port_t)_uart_num, &len);
     return len + (_peek_char >= 0 ? 1 : 0);
@@ -192,6 +223,12 @@ int HardwareSerial::read()
         _peek_char = -1;
         return c;
     }
+    if (_use_usb_jtag) {
+        if (!usb_serial_jtag_is_connected()) return -1;
+        uint8_t c;
+        int len = usb_serial_jtag_read_bytes(&c, 1, 0);
+        return len > 0 ? c : -1;
+    }
     uint8_t c;
     int len = uart_read_bytes((uart_port_t)_uart_num, &c, 1, 0);
     return len > 0 ? c : -1;
@@ -201,6 +238,16 @@ int HardwareSerial::peek()
 {
     if (!_initialized) return -1;
     if (_peek_char >= 0) return _peek_char;
+    if (_use_usb_jtag) {
+        if (!usb_serial_jtag_is_connected()) return -1;
+        uint8_t c;
+        int len = usb_serial_jtag_read_bytes(&c, 1, 0);
+        if (len > 0) {
+            _peek_char = c;
+            return c;
+        }
+        return -1;
+    }
     uint8_t c;
     int len = uart_read_bytes((uart_port_t)_uart_num, &c, 1, 0);
     if (len > 0) {
@@ -213,19 +260,32 @@ int HardwareSerial::peek()
 void HardwareSerial::flush()
 {
     if (_initialized) {
-        uart_wait_tx_done((uart_port_t)_uart_num, portMAX_DELAY);
+        if (_use_usb_jtag) {
+            if (!usb_serial_jtag_is_connected()) return;
+            usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
+        } else {
+            uart_wait_tx_done((uart_port_t)_uart_num, portMAX_DELAY);
+        }
     }
 }
 
 size_t HardwareSerial::write(uint8_t c)
 {
     if (!_initialized) return 0;
+    if (_use_usb_jtag) {
+        if (!usb_serial_jtag_is_connected()) return 1;  // discard silently
+        return usb_serial_jtag_write_bytes((const char *)&c, 1, pdMS_TO_TICKS(50));
+    }
     return uart_write_bytes((uart_port_t)_uart_num, (const char *)&c, 1);
 }
 
 size_t HardwareSerial::write(const uint8_t *buffer, size_t size)
 {
     if (!_initialized) return 0;
+    if (_use_usb_jtag) {
+        if (!usb_serial_jtag_is_connected()) return size;  // discard silently
+        return usb_serial_jtag_write_bytes((const char *)buffer, size, pdMS_TO_TICKS(50));
+    }
     return uart_write_bytes((uart_port_t)_uart_num, (const char *)buffer, size);
 }
 
@@ -277,15 +337,21 @@ void WiFiClass::begin(const char *ssid, const char *password)
 {
     if (!_initialized) init();
 
-    wifi_config_t sta_config = {};
-    strncpy((char *)sta_config.sta.ssid, ssid, sizeof(sta_config.sta.ssid) - 1);
-    if (password) {
-        strncpy((char *)sta_config.sta.password, password, sizeof(sta_config.sta.password) - 1);
-    }
-    strncpy(_ssid, ssid, sizeof(_ssid) - 1);
-
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
+
+    // Arduino compatibility: begin(nullptr) means "connect using stored credentials".
+    if (ssid && ssid[0] != '\0') {
+        wifi_config_t sta_config = {};
+        strncpy((char *)sta_config.sta.ssid, ssid, sizeof(sta_config.sta.ssid) - 1);
+        if (password) {
+            strncpy((char *)sta_config.sta.password, password, sizeof(sta_config.sta.password) - 1);
+        }
+        strncpy(_ssid, ssid, sizeof(_ssid) - 1);
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
+    } else {
+        _ssid[0] = '\0';
+    }
+
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_connect();
 }

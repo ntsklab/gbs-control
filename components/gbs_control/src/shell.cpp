@@ -57,6 +57,9 @@ extern void savePresetToSPIFFS();
 extern void saveUserPrefs();
 extern bool gbs_set_custom_ssid(const char *ssid);
 extern const char *ap_ssid;
+extern float getSourceFieldRate(bool useSPBus);
+extern float getOutputFrameRate();
+extern uint32_t getPllRate();
 
 /* GBS I2C address (7-bit) */
 #define GBS_I2C_ADDR GBS_ADDR
@@ -234,6 +237,7 @@ static void print_help_set(void)
         "  set peaking          Peaking/sharpness\r\n"
         "  set ftl              Frame Time Lock\r\n"
         "  set ftlmethod        FTL lock method\r\n"
+        "  set debugpin <on|off> DEBUG pin measurement\r\n"
         "  set pal60            PAL force 60Hz\r\n"
         "  set linefilter       Line filter\r\n"
         "  set stepresponse     Step response\r\n"
@@ -419,6 +423,26 @@ static void cmd_show_status(void)
         printf("  同期: noSync=%u  安定度=%u  SOGレベル=%u\r\n",
                (unsigned)rto->noSyncCounter, (unsigned)rto->continousStableCounter,
                (unsigned)rto->currentLevelSOG);
+
+         printf("  DebugPin: use=%s  gpio=%d\r\n",
+             (uopt && uopt->useDebugPinMeasurements) ? "ON" : "OFF",
+             PIN_DEBUG_IN);
+
+         if (uopt && uopt->useDebugPinMeasurements) {
+             float srcRate = getSourceFieldRate(true);
+             float outRate = getOutputFrameRate();
+             uint32_t pllRate = getPllRate();
+             const char *state = (srcRate > 0.0f || outRate > 0.0f || pllRate > 0) ? "active" : "no-signal";
+             printf("  DebugProc: %s  (FTL=%s, syncWatcher=%s, noSync=%u)\r\n",
+                 state,
+                 (uopt->enableFrameTimeLock ? "ON" : "OFF"),
+                 (rto->syncWatcherEnabled ? "ON" : "OFF"),
+                 (unsigned)rto->noSyncCounter);
+             printf("  DebugMeas: src=%.3fHz  out=%.3fHz  pll=%luHz\r\n",
+                 srcRate, outRate, (unsigned long)pllRate);
+         } else {
+             printf("  DebugMeas: disabled (set debugpin on)\r\n");
+         }
     }
     printf("=========================\r\n\r\n");
 }
@@ -444,6 +468,7 @@ static void cmd_show_config(void)
     printf("  matchPresetSource : %d\r\n", uopt->matchPresetSource);
     printf("  presetSlot        : %d\r\n", uopt->presetSlot);
     printf("  ftlMethod         : %d\r\n", uopt->frameTimeLockMethod);
+    printf("  debugPinMeasure   : %d\r\n", uopt->useDebugPinMeasurements);
     printf("  tap6              : %d\r\n", uopt->wantTap6);
     printf("  disableExtClkGen  : %d\r\n", uopt->disableExternalClockGenerator);
     printf("  inputMode(build)  : %s\r\n", PINCFG_USE_ROTARY_ENCODER ? "r-encoder" : "d-pad");
@@ -478,25 +503,26 @@ static void cmd_set(int ntok, char *tok[])
         /* 5  */ "peaking",
         /* 6  */ "ftl",
         /* 7  */ "ftlmethod",
-        /* 8  */ "pal60",
-        /* 9  */ "linefilter",
-        /* 10 */ "stepresponse",
-        /* 11 */ "fullheight",
-        /* 12 */ "autogain",
-        /* 13 */ "matched",
-        /* 14 */ "upscaling",
-        /* 15 */ "deint",
-        /* 16 */ "adcfilter",
-        /* 17 */ "oversample",
-        /* 18 */ "syncwatcher",
-        /* 19 */ "freeze",
-        /* 20 */ "brightness",
-        /* 21 */ "contrast",
-        /* 22 */ "gain",
-        /* 23 */ "color",
-        /* 24 */ "defaults",
-        /* 25 */ "ota",
-        /* 26 */ "ssid",
+        /* 8  */ "debugpin",
+        /* 9  */ "pal60",
+        /* 10 */ "linefilter",
+        /* 11 */ "stepresponse",
+        /* 12 */ "fullheight",
+        /* 13 */ "autogain",
+        /* 14 */ "matched",
+        /* 15 */ "upscaling",
+        /* 16 */ "deint",
+        /* 17 */ "adcfilter",
+        /* 18 */ "oversample",
+        /* 19 */ "syncwatcher",
+        /* 20 */ "freeze",
+        /* 21 */ "brightness",
+        /* 22 */ "contrast",
+        /* 23 */ "gain",
+        /* 24 */ "color",
+        /* 25 */ "defaults",
+        /* 26 */ "ota",
+        /* 27 */ "ssid",
     };
     int ki = resolve_abbrev(tok[1], keys, ARRAY_SIZE(keys));
     if (ki == -2) { print_ambiguous(tok[1], keys, ARRAY_SIZE(keys)); return; }
@@ -527,6 +553,21 @@ static void cmd_set(int ntok, char *tok[])
     if (str_eq(key, "peaking"))      { send_sc('f', "[saved] Peaking toggle"); return; }
     if (str_eq(key, "ftl"))          { send_uc('5', "[saved] Frame Time Lock toggle"); return; }
     if (str_eq(key, "ftlmethod"))    { send_uc('i', "[saved] FTL lock method switch"); return; }
+    if (str_eq(key, "debugpin")) {
+        if (ntok < 3) { printf("Usage: set debugpin <on|off>\r\n"); return; }
+        if (str_eq(tok[2], "on") || str_eq(tok[2], "1")) {
+            uopt->useDebugPinMeasurements = 1;
+            saveUserPrefs();
+            printf("[saved] DEBUG pin measurement: ON\r\n");
+        } else if (str_eq(tok[2], "off") || str_eq(tok[2], "0")) {
+            uopt->useDebugPinMeasurements = 0;
+            saveUserPrefs();
+            printf("[saved] DEBUG pin measurement: OFF\r\n");
+        } else {
+            printf("Use on/off\r\n");
+        }
+        return;
+    }
     if (str_eq(key, "pal60"))        { send_uc('0', "[saved] PAL force 60Hz toggle"); return; }
     if (str_eq(key, "linefilter"))   { send_uc('m', "[saved] Line filter toggle"); return; }
     if (str_eq(key, "stepresponse")) { send_sc('V', "[saved] Step response toggle"); return; }
@@ -1002,7 +1043,7 @@ static const char *const s_slot_opts[] = { "list", "set", "save", "remove" };
 
 static const char *const s_set_keys[] = {
     "reso", "output", "passthrough",
-    "scanlines", "scanstr", "peaking", "ftl", "ftlmethod",
+    "scanlines", "scanstr", "peaking", "ftl", "ftlmethod", "debugpin",
     "pal60", "linefilter", "stepresponse", "fullheight",
     "autogain", "matched", "upscaling", "deint",
     "adcfilter", "oversample", "syncwatcher", "freeze",
@@ -1014,6 +1055,7 @@ static const char *const s_reso_opts[] = { "960p", "480p", "720p", "1024p", "108
 static const char *const s_deint_opts[] = { "bob", "ma" };
 static const char *const s_color_opts[] = { "reset", "info" };
 static const char *const s_ssid_opts[] = { "reset" };
+static const char *const s_debugpin_opts[] = { "on", "off" };
 static const char *const s_pm_opts[] = { "+", "-" };
 static const char *const s_dir_opts[] = { "l", "r", "u", "d" };
 static const char *const s_show_opts[] = { "status", "config" };
@@ -1080,6 +1122,10 @@ static bool get_completion_ctx(const char *line, int len,
             }
             if (str_eq(k, "ssid")) {
                 *opts = s_ssid_opts; *cnt = ARRAY_SIZE(s_ssid_opts);
+                *prefix = sub_pfx; return true;
+            }
+            if (str_eq(k, "debugpin")) {
+                *opts = s_debugpin_opts; *cnt = ARRAY_SIZE(s_debugpin_opts);
                 *prefix = sub_pfx; return true;
             }
         }

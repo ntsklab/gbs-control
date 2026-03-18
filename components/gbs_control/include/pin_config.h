@@ -8,22 +8,29 @@
  *   - CONFIG_IDF_TARGET_ESP32C3 → XIAO ESP32-C3
  *   - CONFIG_IDF_TARGET_ESP32C6 → XIAO ESP32-C6
  *
- * ---- XIAO ESP32-C3 Pin Map ----
+ * ---- XIAO ESP32-C3 Physical Pin Map ----
  *   D0=GPIO2, D1=GPIO3, D2=GPIO4, D3=GPIO5, D4=GPIO6, D5=GPIO7
  *   D6=GPIO21, D7=GPIO20, D8=GPIO8, D9=GPIO9, D10=GPIO10
  *   SDA=GPIO6(D4), SCL=GPIO7(D5)
- *   TX=GPIO21(D6), RX=GPIO20(D7)
+ *   UART TX=GPIO21(D6), RX=GPIO20(D7)
  *   Strapping: GPIO2, GPIO8, GPIO9
+ *   Project default DEBUG_IN_PIN: GPIO21 (D6)
  *   See: https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/
  *
- * ---- XIAO ESP32-C6 Pin Map ----
+ * ---- XIAO ESP32-C6 Physical Pin Map ----
  *   D0=GPIO0, D1=GPIO1, D2=GPIO2, D3=GPIO21, D4=GPIO22, D5=GPIO23
  *   D6=GPIO16, D7=GPIO17, D8=GPIO19, D9=GPIO20, D10=GPIO18
  *   SDA=GPIO22(D4), SCL=GPIO23(D5)
- *   TX=GPIO16(D6), RX=GPIO17(D7)
+ *   UART TX=GPIO16(D6), RX=GPIO17(D7)
  *   User LED=GPIO15, Boot=GPIO9
  *   RF Switch: GPIO3(power), GPIO14(select)
+ *   Project default DEBUG_IN_PIN: GPIO16 (D6)
  *   See: https://wiki.seeedstudio.com/xiao_esp32c6_getting_started/
+ *
+ * NOTE:
+ *   The D0..D8 macros below are legacy aliases used by upstream-style code.
+ *   They are intentionally remapped for compatibility and may not match the
+ *   physical XIAO silk labels 1:1 in every case.
  */
 #ifndef PIN_CONFIG_H_
 #define PIN_CONFIG_H_
@@ -48,7 +55,7 @@
 #define PIN_I2C_SCL     23   // XIAO D5 = GPIO23
 
 // ==================== Debug / VSync Input ====================
-#define PIN_DEBUG_IN     0   // XIAO D0 = GPIO0
+#define PIN_DEBUG_IN    16   // XIAO D6 = GPIO16
 
 // ==================== Rotary Encoder ====================
 #define PIN_ENCODER_CLK   1  // XIAO D1 = GPIO1
@@ -102,9 +109,7 @@
 #define PIN_I2C_SCL     7    // XIAO D5 = GPIO7
 
 // ==================== Debug / VSync Input ====================
-#define PIN_DEBUG_IN    2   // D0, unused
-                             // NOTE: GPIO2 (D0) is a strapping pin — do not use
-                             // for signals that may be LOW during chip reset.
+#define PIN_DEBUG_IN    21  // XIAO D6 = GPIO21
 
 // ==================== Rotary Encoder ====================
 #define PIN_ENCODER_CLK   3  // XIAO D1 = GPIO3
@@ -128,7 +133,8 @@
 #define PIN_GEO_RIGHT   20  // XIAO D7  = GPIO20 — picture move right
 
 // ==================== LED ====================
-#define PIN_LED_BUILTIN   21 //D6, boot serial logs, unused
+// C3 has no dedicated user LED GPIO in this project wiring. Keep disabled.
+#define PIN_LED_BUILTIN   255
 
 // ==================== D-pin to GPIO mapping ====================
 #undef D0
@@ -147,7 +153,7 @@
 #define D3  PIN_ENCODER_SW
 #define D4  6
 #define D5  PIN_ENCODER_CLK
-#define D6  PIN_DEBUG_IN  // DEBUG_IN_PIN → GPIO2
+#define D6  PIN_DEBUG_IN  // DEBUG_IN_PIN -> GPIO21
 #define D7  PIN_ENCODER_DATA
 #define D8  8     // (strapping pin — avoid)
 

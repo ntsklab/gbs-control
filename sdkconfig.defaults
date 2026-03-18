@@ -43,6 +43,9 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 # --- Stack sizes ---
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
+# --- Console (USB CDC / USB Serial-JTAG only) ---
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
 # --- I2C ---
 # Using driver/i2c for I2C master
 

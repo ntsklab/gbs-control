@@ -95,7 +95,7 @@
 #define WEBSOCKETS_NETWORK_TYPE NETWORK_ESP8266_ASYNC
 //#define WEBSOCKETS_NETWORK_TYPE NETWORK_W5100
 
-#elif defined(ESP32)
+#elif defined(ESP32) || defined(ESP_PLATFORM)
 #define WEBSOCKETS_NETWORK_TYPE NETWORK_ESP32
 //#define WEBSOCKETS_NETWORK_TYPE NETWORK_ESP32_ETH
 #else
@@ -113,7 +113,7 @@
 
 #if defined(ESP8266)
 #include <ESP8266WiFi.h>
-#elif defined(ESP32)
+#elif defined(ESP32) || defined(ESP_PLATFORM)
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #elif defined(ESP31B)

@@ -33,6 +33,7 @@ public:
 private:
     int _uart_num;
     bool _initialized = false;
+    bool _use_usb_jtag = false;
     int _peek_char = -1;
 };
 
