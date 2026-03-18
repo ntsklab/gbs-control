@@ -1,7 +1,8 @@
 # Modified gbs-control
 - Add PCB gerber
 - (Master branch):Modified for ESP-WROOM-02(D)
-- (xiao-esp32-c3 branch): Port to ESP-IDF and add features for XIAO ESP32-C3
+- (esp-idf branch): **AI Generated** Port to ESP-IDF and add some features for XIAO ESP32-C3/C6
+- (esp-idf-ext branch): **AI Generated** Port to ESP-IDF and add more features for XIAO ESP32-C3/C6
 
 [https://in-deep.blue/archives/1246](https://in-deep.blue/archives/1246)
 
