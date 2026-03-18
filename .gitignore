@@ -1,12 +1,15 @@
 # ESP-IDF build output
 build/
+build*/
+release/
+release*/
 managed_components/
 dependencies.lock
 sdkconfig
 sdkconfig.old
 sdkconfig.*
-build*/
-release*/
+!sdkconfig.defaults
+!sdkconfig.defaults.*
 
 # IDE / Editor
 .vscode/
