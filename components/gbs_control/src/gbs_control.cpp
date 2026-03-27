@@ -7959,9 +7959,10 @@ void gbs_loop()
 
     if (useLegacySyncCompat()) {
         // Keep adaptive sync paths disabled while legacy mode is active.
+        // Note: syncWatcherEnabled=false already gates the FTL block at the run site,
+        // so FrameSync::resetWithoutRecalculation() is not needed here.
         rto->syncWatcherEnabled = false;
         rto->autoBestHtotalEnabled = false;
-        FrameSync::resetWithoutRecalculation();
     }
 
     // is there a command from Terminal or web ui?

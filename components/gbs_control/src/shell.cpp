@@ -447,13 +447,14 @@ static void cmd_show_status(void)
                  (uopt->enableFrameTimeLock ? "ON" : "OFF"),
                  (rto->syncWatcherEnabled ? "ON" : "OFF"),
                  (unsigned)rto->noSyncCounter);
-                 printf("  ExtClockRetune: %s\r\n",
-                     (rto->extClockRetuneEnabled ? "ON" : "OFF"));
              printf("  DebugMeas: src=%.3fHz  out=%.3fHz  pll=%luHz\r\n",
                  srcRate, outRate, (unsigned long)pllRate);
          } else {
              printf("  DebugMeas: disabled (set debugpin on)\r\n");
          }
+         printf("  ExtClockRetune: %s  LegacySync: %s\r\n",
+             (rto->extClockRetuneEnabled ? "ON" : "OFF"),
+             (uopt->useLegacySyncCompat ? "ON" : "OFF"));
     }
     printf("=========================\r\n\r\n");
 }
@@ -539,8 +540,9 @@ static void cmd_set(int ntok, char *tok[])
         /* 25 */ "gain",
         /* 26 */ "color",
         /* 27 */ "defaults",
-        /* 28 */ "ota",
-        /* 29 */ "ssid",
+        /* 28 */ "wipe",
+        /* 29 */ "ota",
+        /* 30 */ "ssid",
     };
     int ki = resolve_abbrev(tok[1], keys, ARRAY_SIZE(keys));
     if (ki == -2) { print_ambiguous(tok[1], keys, ARRAY_SIZE(keys)); return; }
@@ -598,6 +600,8 @@ static void cmd_set(int ntok, char *tok[])
             printf("[saved] Legacy sync compatibility: ON (syncwatcher/autobest/debug-measure/extclk-retune disabled)\r\n");
         } else if (str_eq(tok[2], "off") || str_eq(tok[2], "0")) {
             uopt->useLegacySyncCompat = 0;
+            // Restore syncWatcher default so the next reboot also works correctly.
+            uopt->shellSavedSyncWatcher = 1;
             if (rto) {
                 rto->syncWatcherEnabled = true;
                 rto->autoBestHtotalEnabled = true;
