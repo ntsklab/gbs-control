@@ -222,7 +222,13 @@ struct userOptions *uopt = &uopts;
 struct adcOptions adcopts;
 static inline bool useDebugPinMeasurements()
 {
-    return (uopt && uopt->useDebugPinMeasurements);
+    // Legacy mode emulates older passive behavior by avoiding debug-pin timing paths.
+    return (uopt && uopt->useDebugPinMeasurements && !uopt->useLegacySyncCompat);
+}
+
+static inline bool useLegacySyncCompat()
+{
+    return (uopt && uopt->useLegacySyncCompat);
 }
 struct adcOptions *adco = &adcopts;
 
@@ -371,6 +377,15 @@ void externalClockGenResetClock()
 void externalClockGenSyncInOutRate()
 {
     fsDebugPrintf("externalClockGenSyncInOutRate()\n");
+
+    if (useLegacySyncCompat()) {
+        fsDebugPrintf("externalClockGenSyncInOutRate() skipped in legacy mode\n");
+        return;
+    }
+    if (!rto->extClockRetuneEnabled) {
+        fsDebugPrintf("externalClockGenSyncInOutRate() skipped (extclksync off)\n");
+        return;
+    }
 
     if (!rto->extClockGenDetected) {
         return;
@@ -807,6 +822,7 @@ void setResetParameters()
     rto->medResLineCount = 0x33; // 51*8=408
     rto->osr = 0;
     rto->useHdmiSyncFix = 0;
+    rto->extClockRetuneEnabled = true;
     rto->notRecognizedCounter = 0;
 
     adco->r_gain = 0;
@@ -7150,6 +7166,11 @@ void loadDefaultUserOptions()
     uopt->scanlineStrength = 0x30;           // #18
     uopt->disableExternalClockGenerator = 0; // #19
     uopt->useDebugPinMeasurements = 1;       // #20
+    uopt->useLegacySyncCompat = 0;           // #21
+    uopt->shellSavedAdcFilter = 0;           // #22
+    uopt->shellSavedOversampleRatio = 1;     // #23
+    uopt->shellSavedSyncWatcher = 1;         // #24
+    uopt->shellSavedExtClockSync = 1;        // #25
 }
 
 //RF_PRE_INIT() {
@@ -7476,8 +7497,52 @@ void gbs_setup()
             if (uopt->useDebugPinMeasurements > 1)
                 uopt->useDebugPinMeasurements = 1;
 
+            int legacySyncCompat = f.read(); // #21
+            if (legacySyncCompat >= '0' && legacySyncCompat <= '1') {
+                uopt->useLegacySyncCompat = (uint8_t)(legacySyncCompat - '0');
+            } else {
+                uopt->useLegacySyncCompat = 0;
+            }
+
+            int shellSavedAdcFilter = f.read(); // #22
+            if (shellSavedAdcFilter >= '0' && shellSavedAdcFilter <= '1') {
+                uopt->shellSavedAdcFilter = (uint8_t)(shellSavedAdcFilter - '0');
+            } else {
+                uopt->shellSavedAdcFilter = 0;
+            }
+
+            int shellSavedOversampleRatio = f.read(); // #23
+            if (shellSavedOversampleRatio == '1' || shellSavedOversampleRatio == '2' || shellSavedOversampleRatio == '4') {
+                uopt->shellSavedOversampleRatio = (uint8_t)(shellSavedOversampleRatio - '0');
+            } else {
+                uopt->shellSavedOversampleRatio = 1;
+            }
+
+            int shellSavedSyncWatcher = f.read(); // #24
+            if (shellSavedSyncWatcher >= '0' && shellSavedSyncWatcher <= '1') {
+                uopt->shellSavedSyncWatcher = (uint8_t)(shellSavedSyncWatcher - '0');
+            } else {
+                uopt->shellSavedSyncWatcher = 1;
+            }
+
+            int shellSavedExtClockSync = f.read(); // #25
+            if (shellSavedExtClockSync >= '0' && shellSavedExtClockSync <= '1') {
+                uopt->shellSavedExtClockSync = (uint8_t)(shellSavedExtClockSync - '0');
+            } else {
+                uopt->shellSavedExtClockSync = 1;
+            }
+
             f.close();
         }
+    }
+
+    rto->syncWatcherEnabled = (uopt->shellSavedSyncWatcher != 0);
+    rto->extClockRetuneEnabled = (uopt->shellSavedExtClockSync != 0);
+
+    if (useLegacySyncCompat()) {
+        // Legacy mode intentionally disables the newer adaptive sync logic.
+        rto->syncWatcherEnabled = false;
+        rto->autoBestHtotalEnabled = false;
     }
 
     // Load custom SSID from SPIFFS (if saved) and update AP credentials
@@ -7627,6 +7692,13 @@ void gbs_setup()
         //}
     } else {
         SerialM.println(F("Please check board power and cabling or restart!"));
+    }
+
+    GBS::ADC_FLTR::write(uopt->shellSavedAdcFilter ? 3 : 0);
+    if (uopt->shellSavedOversampleRatio == 2 || uopt->shellSavedOversampleRatio == 4) {
+        setOverSampleRatio(uopt->shellSavedOversampleRatio, false);
+        optimizePhaseSP();
+        rto->phaseIsSet = 0;
     }
 
     LEDOFF; // LED behaviour: only light LED on active sync
@@ -7884,6 +7956,13 @@ void gbs_loop()
 #endif
 
     handleWiFi(0); // WiFi + OTA + WS + MDNS, checks for server enabled + started
+
+    if (useLegacySyncCompat()) {
+        // Keep adaptive sync paths disabled while legacy mode is active.
+        rto->syncWatcherEnabled = false;
+        rto->autoBestHtotalEnabled = false;
+        FrameSync::resetWithoutRecalculation();
+    }
 
     // is there a command from Terminal or web ui?
     // Serial takes precedence
@@ -8219,6 +8298,11 @@ void gbs_loop()
             } break;
             case 'm':
                 SerialM.print(F("syncwatcher "));
+                if (useLegacySyncCompat()) {
+                    rto->syncWatcherEnabled = false;
+                    SerialM.println(F("locked off (legacy sync compat)"));
+                    break;
+                }
                 if (rto->syncWatcherEnabled == true) {
                     rto->syncWatcherEnabled = false;
                     if (rto->videoIsFrozen) {
@@ -10356,7 +10440,27 @@ void saveUserPrefs()
     f.write(uopt->scanlineStrength + '0');              // #18
     f.write(uopt->disableExternalClockGenerator + '0'); // #19
     f.write(uopt->useDebugPinMeasurements + '0');       // #20
+    f.write(uopt->useLegacySyncCompat + '0');           // #21
+    f.write(uopt->shellSavedAdcFilter + '0');           // #22
+    f.write(uopt->shellSavedOversampleRatio + '0');     // #23
+    f.write(uopt->shellSavedSyncWatcher + '0');         // #24
+    f.write(uopt->shellSavedExtClockSync + '0');        // #25
     f.close();
+}
+
+uint8_t gbs_get_adc_filter_state()
+{
+    return GBS::ADC_FLTR::read();
+}
+
+void gbs_set_adc_filter(uint8_t val)
+{
+    GBS::ADC_FLTR::write(val);
+}
+
+void gbs_framesync_reset_soft()
+{
+    FrameSync::resetWithoutRecalculation();
 }
 
 bool gbs_set_custom_ssid(const char *ssid)

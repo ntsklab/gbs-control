@@ -56,10 +56,15 @@ extern SPIFFSClass SPIFFS;
 extern void savePresetToSPIFFS();
 extern void saveUserPrefs();
 extern bool gbs_set_custom_ssid(const char *ssid);
+extern uint8_t gbs_get_adc_filter_state();
+extern void gbs_set_adc_filter(uint8_t val);
+extern void gbs_framesync_reset_soft();
 extern const char *ap_ssid;
 extern float getSourceFieldRate(bool useSPBus);
 extern float getOutputFrameRate();
 extern uint32_t getPllRate();
+extern void setOverSampleRatio(uint8_t newRatio, bool prepareOnly);
+extern void optimizePhaseSP();
 
 /* GBS I2C address (7-bit) */
 #define GBS_I2C_ADDR GBS_ADDR
@@ -214,6 +219,7 @@ static void print_help_root(void)
         "System:\r\n"
         "  info                 System info\r\n"
         "  reboot               Restart ESP\r\n"
+        "  wipe                 FULL factory wipe: all settings+slots+presets+SSID, reboot\r\n"
         "\r\n"
     );
 }
@@ -238,6 +244,8 @@ static void print_help_set(void)
         "  set ftl              Frame Time Lock\r\n"
         "  set ftlmethod        FTL lock method\r\n"
         "  set debugpin <on|off> DEBUG pin measurement\r\n"
+        "  set legacysync <on|off> Legacy sync compatibility mode\r\n"
+        "  set extclksync <on|off> External clock dynamic retune\r\n"
         "  set pal60            PAL force 60Hz\r\n"
         "  set linefilter       Line filter\r\n"
         "  set stepresponse     Step response\r\n"
@@ -248,9 +256,9 @@ static void print_help_set(void)
         "  set deint <bob|ma>   Deinterlacer mode\r\n"
         "\r\n"
         "Debug settings [temp] (not saved, lost on reboot):\r\n"
-        "  set adcfilter        ADC filter\r\n"
-        "  set oversample       Oversampling (1x/2x/4x)\r\n"
-        "  set syncwatcher      Sync watcher\r\n"
+        "  set adcfilter        ADC filter [saved: shell only]\r\n"
+        "  set oversample       Oversampling (1x/2x/4x) [saved: shell only]\r\n"
+        "  set syncwatcher      Sync watcher [saved: shell only]\r\n"
         "  set freeze           Freeze capture\r\n"
         "\r\n"
         "Picture [preset] (save via 'slot save <name>'):\r\n"
@@ -266,7 +274,8 @@ static void print_help_set(void)
         "  slot remove             Remove current slot\r\n"
         "\r\n"
         "System:\r\n"
-        "  set defaults         Reset all + reboot\r\n"
+        "  set defaults         Reset settings + reboot (keeps slots/presets)\r\n"
+        "  set wipe             FULL factory wipe: settings+slots+presets+SSID, reboot\r\n"
         "  set ota              Enable OTA update [temp]\r\n"
         "  set ssid <name>      Set custom AP SSID [saved]\r\n"
         "  set ssid reset       Revert to default MAC-based SSID\r\n"
@@ -438,6 +447,8 @@ static void cmd_show_status(void)
                  (uopt->enableFrameTimeLock ? "ON" : "OFF"),
                  (rto->syncWatcherEnabled ? "ON" : "OFF"),
                  (unsigned)rto->noSyncCounter);
+                 printf("  ExtClockRetune: %s\r\n",
+                     (rto->extClockRetuneEnabled ? "ON" : "OFF"));
              printf("  DebugMeas: src=%.3fHz  out=%.3fHz  pll=%luHz\r\n",
                  srcRate, outRate, (unsigned long)pllRate);
          } else {
@@ -469,6 +480,11 @@ static void cmd_show_config(void)
     printf("  presetSlot        : %d\r\n", uopt->presetSlot);
     printf("  ftlMethod         : %d\r\n", uopt->frameTimeLockMethod);
     printf("  debugPinMeasure   : %d\r\n", uopt->useDebugPinMeasurements);
+    printf("  legacySyncCompat  : %d\r\n", uopt->useLegacySyncCompat);
+    printf("  shellAdcFilter    : %d\r\n", uopt->shellSavedAdcFilter);
+    printf("  shellOversample   : %d\r\n", uopt->shellSavedOversampleRatio);
+    printf("  shellSyncWatcher  : %d\r\n", uopt->shellSavedSyncWatcher);
+    printf("  shellExtClkSync   : %d\r\n", uopt->shellSavedExtClockSync);
     printf("  tap6              : %d\r\n", uopt->wantTap6);
     printf("  disableExtClkGen  : %d\r\n", uopt->disableExternalClockGenerator);
     printf("  inputMode(build)  : %s\r\n", PINCFG_USE_ROTARY_ENCODER ? "r-encoder" : "d-pad");
@@ -504,25 +520,27 @@ static void cmd_set(int ntok, char *tok[])
         /* 6  */ "ftl",
         /* 7  */ "ftlmethod",
         /* 8  */ "debugpin",
-        /* 9  */ "pal60",
-        /* 10 */ "linefilter",
-        /* 11 */ "stepresponse",
-        /* 12 */ "fullheight",
-        /* 13 */ "autogain",
-        /* 14 */ "matched",
-        /* 15 */ "upscaling",
-        /* 16 */ "deint",
-        /* 17 */ "adcfilter",
-        /* 18 */ "oversample",
-        /* 19 */ "syncwatcher",
-        /* 20 */ "freeze",
-        /* 21 */ "brightness",
-        /* 22 */ "contrast",
-        /* 23 */ "gain",
-        /* 24 */ "color",
-        /* 25 */ "defaults",
-        /* 26 */ "ota",
-        /* 27 */ "ssid",
+        /* 9  */ "legacysync",
+        /* 10 */ "extclksync",
+        /* 11 */ "pal60",
+        /* 12 */ "linefilter",
+        /* 13 */ "stepresponse",
+        /* 14 */ "fullheight",
+        /* 15 */ "autogain",
+        /* 16 */ "matched",
+        /* 17 */ "upscaling",
+        /* 18 */ "deint",
+        /* 19 */ "adcfilter",
+        /* 20 */ "oversample",
+        /* 21 */ "syncwatcher",
+        /* 22 */ "freeze",
+        /* 23 */ "brightness",
+        /* 24 */ "contrast",
+        /* 25 */ "gain",
+        /* 26 */ "color",
+        /* 27 */ "defaults",
+        /* 28 */ "ota",
+        /* 29 */ "ssid",
     };
     int ki = resolve_abbrev(tok[1], keys, ARRAY_SIZE(keys));
     if (ki == -2) { print_ambiguous(tok[1], keys, ARRAY_SIZE(keys)); return; }
@@ -568,6 +586,48 @@ static void cmd_set(int ntok, char *tok[])
         }
         return;
     }
+    if (str_eq(key, "legacysync")) {
+        if (ntok < 3) { printf("Usage: set legacysync <on|off>\r\n"); return; }
+        if (str_eq(tok[2], "on") || str_eq(tok[2], "1")) {
+            uopt->useLegacySyncCompat = 1;
+            if (rto) {
+                rto->syncWatcherEnabled = false;
+                rto->autoBestHtotalEnabled = false;
+            }
+            saveUserPrefs();
+            printf("[saved] Legacy sync compatibility: ON (syncwatcher/autobest/debug-measure/extclk-retune disabled)\r\n");
+        } else if (str_eq(tok[2], "off") || str_eq(tok[2], "0")) {
+            uopt->useLegacySyncCompat = 0;
+            if (rto) {
+                rto->syncWatcherEnabled = true;
+                rto->autoBestHtotalEnabled = true;
+                gbs_framesync_reset_soft();
+            }
+            saveUserPrefs();
+            printf("[saved] Legacy sync compatibility: OFF\r\n");
+        } else {
+            printf("Use on/off\r\n");
+        }
+        return;
+    }
+    if (str_eq(key, "extclksync")) {
+        if (ntok < 3) { printf("Usage: set extclksync <on|off>\r\n"); return; }
+        if (!rto) { printf("runtime unavailable\r\n"); return; }
+        if (str_eq(tok[2], "on") || str_eq(tok[2], "1")) {
+            rto->extClockRetuneEnabled = 1;
+            uopt->shellSavedExtClockSync = 1;
+            saveUserPrefs();
+            printf("[saved] External clock dynamic retune: ON (shell)\r\n");
+        } else if (str_eq(tok[2], "off") || str_eq(tok[2], "0")) {
+            rto->extClockRetuneEnabled = 0;
+            uopt->shellSavedExtClockSync = 0;
+            saveUserPrefs();
+            printf("[saved] External clock dynamic retune: OFF (shell)\r\n");
+        } else {
+            printf("Use on/off\r\n");
+        }
+        return;
+    }
     if (str_eq(key, "pal60"))        { send_uc('0', "[saved] PAL force 60Hz toggle"); return; }
     if (str_eq(key, "linefilter"))   { send_uc('m', "[saved] Line filter toggle"); return; }
     if (str_eq(key, "stepresponse")) { send_sc('V', "[saved] Step response toggle"); return; }
@@ -586,9 +646,54 @@ static void cmd_set(int ntok, char *tok[])
     }
 
     /* --- Debug settings [temp] --- */
-    if (str_eq(key, "adcfilter"))    { send_sc('F', "[temp] ADC filter toggle"); return; }
-    if (str_eq(key, "oversample"))   { send_sc('o', "[temp] Oversampling cycle 1x/2x/4x"); return; }
-    if (str_eq(key, "syncwatcher"))  { send_sc('m', "[temp] Sync watcher toggle"); return; }
+    if (str_eq(key, "adcfilter")) {
+        if (gbs_get_adc_filter_state() > 0) {
+            gbs_set_adc_filter(0);
+            uopt->shellSavedAdcFilter = 0;
+            printf("[saved] ADC filter: OFF (shell)\r\n");
+        } else {
+            gbs_set_adc_filter(3);
+            uopt->shellSavedAdcFilter = 1;
+            printf("[saved] ADC filter: ON (shell)\r\n");
+        }
+        saveUserPrefs();
+        return;
+    }
+    if (str_eq(key, "oversample")) {
+        if (!rto) { printf("runtime unavailable\r\n"); return; }
+        if (rto->osr == 1) {
+            setOverSampleRatio(2, false);
+        } else if (rto->osr == 2) {
+            setOverSampleRatio(4, false);
+        } else {
+            setOverSampleRatio(1, false);
+        }
+        optimizePhaseSP();
+        rto->phaseIsSet = 0;
+        if (rto->osr == 1 || rto->osr == 2 || rto->osr == 4) {
+            uopt->shellSavedOversampleRatio = rto->osr;
+        } else {
+            uopt->shellSavedOversampleRatio = 1;
+        }
+        saveUserPrefs();
+        printf("[saved] Oversampling: %ux (shell)\r\n", (unsigned)uopt->shellSavedOversampleRatio);
+        return;
+    }
+    if (str_eq(key, "syncwatcher")) {
+        if (!rto) { printf("runtime unavailable\r\n"); return; }
+        if (uopt->useLegacySyncCompat) {
+            rto->syncWatcherEnabled = false;
+            uopt->shellSavedSyncWatcher = 0;
+            saveUserPrefs();
+            printf("[saved] Sync watcher: OFF (legacy sync compat lock)\r\n");
+            return;
+        }
+        rto->syncWatcherEnabled = !rto->syncWatcherEnabled;
+        uopt->shellSavedSyncWatcher = rto->syncWatcherEnabled ? 1 : 0;
+        saveUserPrefs();
+        printf("[saved] Sync watcher: %s (shell)\r\n", rto->syncWatcherEnabled ? "ON" : "OFF");
+        return;
+    }
     if (str_eq(key, "freeze"))       { send_uc('F', "[temp] Freeze capture toggle"); return; }
 
     /* --- Picture [preset] --- */
@@ -623,6 +728,31 @@ static void cmd_set(int ntok, char *tok[])
 
     /* --- System --- */
     if (str_eq(key, "defaults")) { send_uc('1', "Reset to defaults + reboot"); return; }
+    if (str_eq(key, "wipe")) {
+        // Full factory wipe: remove all SPIFFS files we own, then reset.
+        printf("Wiping SPIFFS: preferencesv2.txt, slots.bin, all presets, ssid.txt ...\r\n");
+        SPIFFS.remove("/preferencesv2.txt");
+        SPIFFS.remove("/slots.bin");
+        SPIFFS.remove("/ssid.txt");
+        // Remove all custom preset files for every slot character in the map.
+        extern String slotIndexMap;
+        for (int _i = 0; _i < (int)slotIndexMap.length(); _i++) {
+            String sc((char)slotIndexMap[_i]);
+            SPIFFS.remove("/preset_ntsc."        + sc);
+            SPIFFS.remove("/preset_pal."         + sc);
+            SPIFFS.remove("/preset_ntsc_480p."   + sc);
+            SPIFFS.remove("/preset_pal_576p."    + sc);
+            SPIFFS.remove("/preset_ntsc_720p."   + sc);
+            SPIFFS.remove("/preset_ntsc_1080p."  + sc);
+            SPIFFS.remove("/preset_medium_res."  + sc);
+            SPIFFS.remove("/preset_vga_upscale." + sc);
+            SPIFFS.remove("/preset_unknown."     + sc);
+        }
+        printf("Done. Rebooting...\r\n");
+        vTaskDelay(pdMS_TO_TICKS(200));
+        esp_restart();
+        return;
+    }
     if (str_eq(key, "ota"))      { send_sc('c', "[temp] OTA update enabled"); return; }
 
     /* --- SSID [saved] --- */
@@ -660,8 +790,14 @@ static bool slot_read_meta(SlotMetaArray &obj)
 {
     File f = SPIFFS.open(SLOTS_FILE, "r");
     if (!f) return false;
-    f.read((uint8_t *)&obj, sizeof(obj));
+    size_t n = f.read((uint8_t *)&obj, sizeof(obj));
     f.close();
+    if (n != sizeof(obj)) return false;
+
+    // Guard against older/corrupt slot files that may miss string terminators.
+    for (int i = 0; i < SLOTS_TOTAL; i++) {
+        obj.slot[i].name[24] = '\0';
+    }
     return true;
 }
 
@@ -852,36 +988,40 @@ static void cmd_slot(int ntok, char *tok[])
         SPIFFS.remove("/preset_vga_upscale." + sc);
         SPIFFS.remove("/preset_unknown." + sc);
 
-        // Shift subsequent slots down (same as WebUI)
-        uint8_t loopCount = 0;
-        uint8_t flag = 1;
-        while (flag != 0) {
-            Ascii8 cur = slotIndexMap[activeIdx + loopCount];
-            Ascii8 nxt = slotIndexMap[activeIdx + loopCount + 1];
-            flag = 0;
+        // Shift subsequent slots down (same as WebUI), with explicit bounds.
+        for (int i = activeIdx; i < (SLOTS_TOTAL - 1); i++) {
+            Ascii8 cur = slotIndexMap[i];
+            Ascii8 nxt = slotIndexMap[i + 1];
             String cs((char)cur), ns((char)nxt);
-            flag += SPIFFS.rename("/preset_ntsc." + ns, "/preset_ntsc." + cs);
-            flag += SPIFFS.rename("/preset_pal." + ns, "/preset_pal." + cs);
-            flag += SPIFFS.rename("/preset_ntsc_480p." + ns, "/preset_ntsc_480p." + cs);
-            flag += SPIFFS.rename("/preset_pal_576p." + ns, "/preset_pal_576p." + cs);
-            flag += SPIFFS.rename("/preset_ntsc_720p." + ns, "/preset_ntsc_720p." + cs);
-            flag += SPIFFS.rename("/preset_ntsc_1080p." + ns, "/preset_ntsc_1080p." + cs);
-            flag += SPIFFS.rename("/preset_medium_res." + ns, "/preset_medium_res." + cs);
-            flag += SPIFFS.rename("/preset_vga_upscale." + ns, "/preset_vga_upscale." + cs);
-            flag += SPIFFS.rename("/preset_unknown." + ns, "/preset_unknown." + cs);
 
-            obj.slot[activeIdx + loopCount].slot = obj.slot[activeIdx + loopCount + 1].slot;
-            obj.slot[activeIdx + loopCount].presetID = obj.slot[activeIdx + loopCount + 1].presetID;
-            obj.slot[activeIdx + loopCount].scanlines = obj.slot[activeIdx + loopCount + 1].scanlines;
-            obj.slot[activeIdx + loopCount].scanlinesStrength = obj.slot[activeIdx + loopCount + 1].scanlinesStrength;
-            obj.slot[activeIdx + loopCount].wantVdsLineFilter = obj.slot[activeIdx + loopCount + 1].wantVdsLineFilter;
-            obj.slot[activeIdx + loopCount].wantStepResponse = obj.slot[activeIdx + loopCount + 1].wantStepResponse;
-            obj.slot[activeIdx + loopCount].wantPeaking = obj.slot[activeIdx + loopCount + 1].wantPeaking;
-            strncpy(obj.slot[activeIdx + loopCount].name, obj.slot[activeIdx + loopCount + 1].name, 25);
-            loopCount++;
+            SPIFFS.rename("/preset_ntsc." + ns, "/preset_ntsc." + cs);
+            SPIFFS.rename("/preset_pal." + ns, "/preset_pal." + cs);
+            SPIFFS.rename("/preset_ntsc_480p." + ns, "/preset_ntsc_480p." + cs);
+            SPIFFS.rename("/preset_pal_576p." + ns, "/preset_pal_576p." + cs);
+            SPIFFS.rename("/preset_ntsc_720p." + ns, "/preset_ntsc_720p." + cs);
+            SPIFFS.rename("/preset_ntsc_1080p." + ns, "/preset_ntsc_1080p." + cs);
+            SPIFFS.rename("/preset_medium_res." + ns, "/preset_medium_res." + cs);
+            SPIFFS.rename("/preset_vga_upscale." + ns, "/preset_vga_upscale." + cs);
+            SPIFFS.rename("/preset_unknown." + ns, "/preset_unknown." + cs);
+
+            obj.slot[i] = obj.slot[i + 1];
         }
 
-        slot_write_meta(obj);
+        // Clear the tail slot after compaction.
+        const int tail = SLOTS_TOTAL - 1;
+        obj.slot[tail].slot = tail;
+        obj.slot[tail].presetID = 0;
+        obj.slot[tail].scanlines = 0;
+        obj.slot[tail].scanlinesStrength = 0;
+        obj.slot[tail].wantVdsLineFilter = 0;
+        obj.slot[tail].wantStepResponse = 1;
+        obj.slot[tail].wantPeaking = 1;
+        strncpy(obj.slot[tail].name, EMPTY_SLOT_NAME, 25);
+
+        if (!slot_write_meta(obj)) {
+            printf("Failed to update slots file\r\n");
+            return;
+        }
         printf("Slot '%s' removed.\r\n", oldName);
         return;
     }
@@ -1037,13 +1177,14 @@ static const char *const s_top_opts[] = {
     "move", "scale", "border",
     "slot",
     "probe", "reg", "dump",
-    "log", "sc", "uc", "info", "reboot"
+    "log", "sc", "uc", "info", "reboot", "wipe"
 };
 static const char *const s_slot_opts[] = { "list", "set", "save", "remove" };
 
 static const char *const s_set_keys[] = {
     "reso", "output", "passthrough",
     "scanlines", "scanstr", "peaking", "ftl", "ftlmethod", "debugpin",
+    "legacysync", "extclksync",
     "pal60", "linefilter", "stepresponse", "fullheight",
     "autogain", "matched", "upscaling", "deint",
     "adcfilter", "oversample", "syncwatcher", "freeze",
@@ -1056,6 +1197,8 @@ static const char *const s_deint_opts[] = { "bob", "ma" };
 static const char *const s_color_opts[] = { "reset", "info" };
 static const char *const s_ssid_opts[] = { "reset" };
 static const char *const s_debugpin_opts[] = { "on", "off" };
+static const char *const s_legacysync_opts[] = { "on", "off" };
+static const char *const s_extclksync_opts[] = { "on", "off" };
 static const char *const s_pm_opts[] = { "+", "-" };
 static const char *const s_dir_opts[] = { "l", "r", "u", "d" };
 static const char *const s_show_opts[] = { "status", "config" };
@@ -1126,6 +1269,14 @@ static bool get_completion_ctx(const char *line, int len,
             }
             if (str_eq(k, "debugpin")) {
                 *opts = s_debugpin_opts; *cnt = ARRAY_SIZE(s_debugpin_opts);
+                *prefix = sub_pfx; return true;
+            }
+            if (str_eq(k, "legacysync")) {
+                *opts = s_legacysync_opts; *cnt = ARRAY_SIZE(s_legacysync_opts);
+                *prefix = sub_pfx; return true;
+            }
+            if (str_eq(k, "extclksync")) {
+                *opts = s_extclksync_opts; *cnt = ARRAY_SIZE(s_extclksync_opts);
                 *prefix = sub_pfx; return true;
             }
         }
@@ -1280,7 +1431,7 @@ static void process_command(char *line)
         TOP_MOVE, TOP_SCALE, TOP_BORDER,
         TOP_SLOT,
         TOP_PROBE, TOP_REG, TOP_DUMP,
-        TOP_LOG, TOP_SC, TOP_UC, TOP_INFO, TOP_REBOOT
+        TOP_LOG, TOP_SC, TOP_UC, TOP_INFO, TOP_REBOOT, TOP_WIPE
     };
 
     int top = resolve_abbrev(tok[0], s_top_opts, ARRAY_SIZE(s_top_opts));
@@ -1358,6 +1509,27 @@ static void process_command(char *line)
     case TOP_REBOOT:
         printf("Rebooting...\r\n");
         vTaskDelay(pdMS_TO_TICKS(100));
+        esp_restart();
+        break;
+    case TOP_WIPE:
+        printf("Wiping SPIFFS: preferencesv2.txt, slots.bin, all presets, ssid.txt ...\r\n");
+        SPIFFS.remove("/preferencesv2.txt");
+        SPIFFS.remove("/slots.bin");
+        SPIFFS.remove("/ssid.txt");
+        for (int _wi = 0; _wi < (int)slotIndexMap.length(); _wi++) {
+            String wsc((char)slotIndexMap[_wi]);
+            SPIFFS.remove("/preset_ntsc."        + wsc);
+            SPIFFS.remove("/preset_pal."         + wsc);
+            SPIFFS.remove("/preset_ntsc_480p."   + wsc);
+            SPIFFS.remove("/preset_pal_576p."    + wsc);
+            SPIFFS.remove("/preset_ntsc_720p."   + wsc);
+            SPIFFS.remove("/preset_ntsc_1080p."  + wsc);
+            SPIFFS.remove("/preset_medium_res."  + wsc);
+            SPIFFS.remove("/preset_vga_upscale." + wsc);
+            SPIFFS.remove("/preset_unknown."     + wsc);
+        }
+        printf("Done. Rebooting...\r\n");
+        vTaskDelay(pdMS_TO_TICKS(200));
         esp_restart();
         break;
     }

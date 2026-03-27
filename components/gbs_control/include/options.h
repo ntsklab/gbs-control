@@ -37,6 +37,11 @@ struct userOptions
     uint8_t enableCalibrationADC;
     uint8_t scanlineStrength;
     uint8_t useDebugPinMeasurements;
+    uint8_t useLegacySyncCompat;
+    uint8_t shellSavedAdcFilter;
+    uint8_t shellSavedOversampleRatio;
+    uint8_t shellSavedSyncWatcher;
+    uint8_t shellSavedExtClockSync;
 };
 
 
@@ -86,6 +91,7 @@ struct runTimeOptions
     bool isValidForScalingRGBHV;
     bool useHdmiSyncFix;
     bool extClockGenDetected;
+    bool extClockRetuneEnabled;
 };
 // remember adc options across presets
 struct adcOptions
