@@ -28,6 +28,30 @@
 
 static const char *TAG = "compat";
 
+static void apply_wifi_bandwidth_ht20()
+{
+    wifi_mode_t mode = WIFI_MODE_NULL;
+    esp_err_t mode_err = esp_wifi_get_mode(&mode);
+    if (mode_err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_wifi_get_mode failed: %s", esp_err_to_name(mode_err));
+        return;
+    }
+
+    if (mode == WIFI_MODE_STA || mode == WIFI_MODE_APSTA) {
+        esp_err_t err = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "set STA bandwidth HT20 failed: %s", esp_err_to_name(err));
+        }
+    }
+
+    if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA) {
+        esp_err_t err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "set AP bandwidth HT20 failed: %s", esp_err_to_name(err));
+        }
+    }
+}
+
 // ==================== Global instances ====================
 portMUX_TYPE g_compat_mux = portMUX_INITIALIZER_UNLOCKED;
 EspClass ESP;
@@ -353,6 +377,7 @@ void WiFiClass::begin(const char *ssid, const char *password)
     }
 
     ESP_ERROR_CHECK(esp_wifi_start());
+    apply_wifi_bandwidth_ht20();
     esp_wifi_connect();
 }
 
@@ -414,6 +439,7 @@ void WiFiClass::softAP(const char *ssid, const char *password, int channel, int 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    apply_wifi_bandwidth_ht20();
 }
 
 void WiFiClass::softAPConfig(uint32_t local_ip, uint32_t gateway, uint32_t subnet)
@@ -459,6 +485,7 @@ void WiFiClass::mode(int m)
     _mode = m;
     esp_wifi_set_mode(wifiMode);
     esp_wifi_start();
+    apply_wifi_bandwidth_ht20();
 }
 
 String WiFiClass::SSID()
@@ -534,7 +561,11 @@ void WiFiClass::setOutputPower(float dBm)
 void WiFiClass::setAutoConnect(bool autoConnect) { (void)autoConnect; }
 void WiFiClass::setAutoReconnect(bool autoReconnect) { (void)autoReconnect; }
 void WiFiClass::forceSleepBegin() { esp_wifi_stop(); }
-void WiFiClass::forceSleepWake() { esp_wifi_start(); }
+void WiFiClass::forceSleepWake()
+{
+    esp_wifi_start();
+    apply_wifi_bandwidth_ht20();
+}
 
 int8_t WiFiClass::scanNetworks(bool async)
 {
