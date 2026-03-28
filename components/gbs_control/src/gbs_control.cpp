@@ -7694,12 +7694,13 @@ void gbs_setup()
         SerialM.println(F("Please check board power and cabling or restart!"));
     }
 
-    GBS::ADC_FLTR::write(uopt->shellSavedAdcFilter ? 3 : 0);
-    if (uopt->shellSavedOversampleRatio == 2 || uopt->shellSavedOversampleRatio == 4) {
-        setOverSampleRatio(uopt->shellSavedOversampleRatio, false);
-        optimizePhaseSP();
-        rto->phaseIsSet = 0;
+    // Do not force ADC filter to 0 at boot: presets tune this per mode,
+    // and overriding it here can leave startup with no visible output.
+    if (uopt->shellSavedAdcFilter) {
+        GBS::ADC_FLTR::write(3);
     }
+    // Same rationale for shell oversample restore: applying OSR here can
+    // override freshly applied preset timing at boot.
 
     LEDOFF; // LED behaviour: only light LED on active sync
 
