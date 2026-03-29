@@ -4036,6 +4036,11 @@ void doPostPresetLoadSteps()
 
     OutputComponentOrVGA();
 
+    // Re-apply user-saved coast edge tuning after preset/postload logic.
+    // Presets may overwrite these earlier in doPostPresetLoadSteps().
+    GBS::SP_PRE_COAST::write(uopt->shellSavedPreCoast);
+    GBS::SP_POST_COAST::write(uopt->shellSavedPostCoast);
+
     // presetPreference 10 means the user prefers bypass mode at startup
     // it's best to run a normal format detect > apply preset loop, then enter bypass mode
     // this can lead to an endless loop, so applyPresetDoneStage = 10 applyPresetDoneStage = 11
@@ -4128,6 +4133,20 @@ void doPostPresetLoadSteps()
 }
 
 // TODO replace result with VideoStandardInput enum
+static uint8_t inferFallbackVideoMode()
+{
+    // getVideoMode() may temporarily return 0 while IF/SP counters are already alive.
+    // Use VPERIOD_IF as a conservative SD fallback estimator.
+    uint16_t vperiod = GBS::VPERIOD_IF::read();
+    if (vperiod >= 500 && vperiod <= 560) {
+        return 1; // NTSC-like SD family
+    }
+    if (vperiod >= 590 && vperiod <= 680) {
+        return 2; // PAL-like SD family
+    }
+    return 0;
+}
+
 void applyPresets(uint8_t result)
 {
     if (!rto->boardHasPower) {
@@ -4176,12 +4195,21 @@ void applyPresets(uint8_t result)
     if (result == 0) {
         // Unknown
         SerialM.println(F("Source format not properly recognized, using fallback preset!"));
-        result = 3;                   // in case of success: override to 480p60
+        uint8_t inferred = inferFallbackVideoMode();
+        if (inferred != 0) {
+            result = inferred;
+            SerialM.print(F("Inferred fallback mode: "));
+            SerialM.println(result);
+        } else {
+            result = 3; // legacy fallback
+        }
         GBS::ADC_INPUT_SEL::write(1); // RGB
         delay(100);
         if (GBS::STATUS_SYNC_PROC_HSACT::read() == 1) {
             rto->inputIsYpBpR = 0;
-            rto->syncWatcherEnabled = 1;
+            if (!useLegacySyncCompat()) {
+                rto->syncWatcherEnabled = (uopt->shellSavedSyncWatcher != 0);
+            }
             if (GBS::STATUS_SYNC_PROC_VSACT::read() == 0) {
                 rto->syncTypeCsync = 1;
             } else {
@@ -4193,7 +4221,9 @@ void applyPresets(uint8_t result)
             if (GBS::STATUS_SYNC_PROC_HSACT::read() == 1) {
                 rto->inputIsYpBpR = 1;
                 rto->syncTypeCsync = 1;
-                rto->syncWatcherEnabled = 1;
+                if (!useLegacySyncCompat()) {
+                    rto->syncWatcherEnabled = (uopt->shellSavedSyncWatcher != 0);
+                }
             } else {
                 // found nothing at all, turn off output
 
@@ -7171,6 +7201,8 @@ void loadDefaultUserOptions()
     uopt->shellSavedOversampleRatio = 1;     // #23
     uopt->shellSavedSyncWatcher = 1;         // #24
     uopt->shellSavedExtClockSync = 1;        // #25
+    uopt->shellSavedPreCoast = 9;            // #26
+    uopt->shellSavedPostCoast = 18;          // #27
 }
 
 //RF_PRE_INIT() {
@@ -7532,6 +7564,20 @@ void gbs_setup()
                 uopt->shellSavedExtClockSync = 1;
             }
 
+            int shellSavedPreCoast = f.read(); // #26 (raw byte)
+            if (shellSavedPreCoast >= 0 && shellSavedPreCoast <= 255) {
+                uopt->shellSavedPreCoast = (uint8_t)shellSavedPreCoast;
+            } else {
+                uopt->shellSavedPreCoast = 9;
+            }
+
+            int shellSavedPostCoast = f.read(); // #27 (raw byte)
+            if (shellSavedPostCoast >= 0 && shellSavedPostCoast <= 255) {
+                uopt->shellSavedPostCoast = (uint8_t)shellSavedPostCoast;
+            } else {
+                uopt->shellSavedPostCoast = 18;
+            }
+
             f.close();
         }
     }
@@ -7540,7 +7586,10 @@ void gbs_setup()
     rto->extClockRetuneEnabled = (uopt->shellSavedExtClockSync != 0);
 
     if (useLegacySyncCompat()) {
-        // Legacy mode intentionally disables the newer adaptive sync logic.
+        // Passive mode: syncWatcher OFF stops runSyncWatcher() adaptive adjustments
+        // that interfere with non-standard sync sources (e.g. MVS).
+        // inputAndSyncDetect() is now ungated from syncWatcherEnabled, so startup
+        // detection still works while the device stays passive after preset apply.
         rto->syncWatcherEnabled = false;
         rto->autoBestHtotalEnabled = false;
     }
@@ -7701,6 +7750,8 @@ void gbs_setup()
     }
     // Same rationale for shell oversample restore: applying OSR here can
     // override freshly applied preset timing at boot.
+    GBS::SP_PRE_COAST::write(uopt->shellSavedPreCoast);
+    GBS::SP_POST_COAST::write(uopt->shellSavedPostCoast);
 
     LEDOFF; // LED behaviour: only light LED on active sync
 
@@ -7931,6 +7982,8 @@ void gbs_loop()
     static unsigned long lastTimeSyncWatcher = millis();
     static unsigned long lastTimeSourceCheck = 500; // 500 to start right away (after setup it will be 2790ms when we get here)
     static unsigned long lastTimeInterruptClear = millis();
+    static unsigned long lastTimePassiveTune = 0;
+    static uint8_t passiveStableCounter = 0;
 
 #if HAVE_BUTTONS
     static unsigned long lastButton = micros();
@@ -7959,9 +8012,8 @@ void gbs_loop()
     handleWiFi(0); // WiFi + OTA + WS + MDNS, checks for server enabled + started
 
     if (useLegacySyncCompat()) {
-        // Keep adaptive sync paths disabled while legacy mode is active.
-        // Note: syncWatcherEnabled=false already gates the FTL block at the run site,
-        // so FrameSync::resetWithoutRecalculation() is not needed here.
+        // Keep syncWatcher disabled each loop to ensure passive mode.
+        // inputAndSyncDetect() runs via the ungated sourceDisconnected path.
         rto->syncWatcherEnabled = false;
         rto->autoBestHtotalEnabled = false;
     }
@@ -8301,7 +8353,6 @@ void gbs_loop()
             case 'm':
                 SerialM.print(F("syncwatcher "));
                 if (useLegacySyncCompat()) {
-                    rto->syncWatcherEnabled = false;
                     SerialM.println(F("locked off (legacy sync compat)"));
                     break;
                 }
@@ -8491,6 +8542,50 @@ void gbs_loop()
                 invertVS();
                 //optimizePhaseSP();
                 break;
+            case '[': {
+                uint8_t value = GBS::SP_PRE_COAST::read();
+                if (value > 0) {
+                    value--;
+                    GBS::SP_PRE_COAST::write(value);
+                }
+                uopt->shellSavedPreCoast = GBS::SP_PRE_COAST::read();
+                saveUserPrefs();
+                SerialM.print(F("PreCoast: "));
+                SerialM.println(GBS::SP_PRE_COAST::read());
+            } break;
+            case ']': {
+                uint8_t value = GBS::SP_PRE_COAST::read();
+                if (value < 255) {
+                    value++;
+                    GBS::SP_PRE_COAST::write(value);
+                }
+                uopt->shellSavedPreCoast = GBS::SP_PRE_COAST::read();
+                saveUserPrefs();
+                SerialM.print(F("PreCoast: "));
+                SerialM.println(GBS::SP_PRE_COAST::read());
+            } break;
+            case '{': {
+                uint8_t value = GBS::SP_POST_COAST::read();
+                if (value > 0) {
+                    value--;
+                    GBS::SP_POST_COAST::write(value);
+                }
+                uopt->shellSavedPostCoast = GBS::SP_POST_COAST::read();
+                saveUserPrefs();
+                SerialM.print(F("PostCoast: "));
+                SerialM.println(GBS::SP_POST_COAST::read());
+            } break;
+            case '}': {
+                uint8_t value = GBS::SP_POST_COAST::read();
+                if (value < 255) {
+                    value++;
+                    GBS::SP_POST_COAST::write(value);
+                }
+                uopt->shellSavedPostCoast = GBS::SP_POST_COAST::read();
+                saveUserPrefs();
+                SerialM.print(F("PostCoast: "));
+                SerialM.println(GBS::SP_POST_COAST::read());
+            } break;
             case '9':
                 writeProgramArrayNew(ntsc_720x480, false);
                 doPostPresetLoadSteps();
@@ -8997,6 +9092,45 @@ void gbs_loop()
         }
     }
 
+    // Passive mode tune: when syncwatcher is OFF, we still need a one-shot
+    // coast/clamp setup after signal lock. Without this, top-line distortion
+    // can remain until users toggle syncwatcher or re-apply a resolution.
+    if (!rto->syncWatcherEnabled && !rto->sourceDisconnected &&
+        rto->videoStandardInput != 0 && rto->videoStandardInput <= 14) {
+        if ((millis() - lastTimePassiveTune) > 40) {
+            lastTimePassiveTune = millis();
+            if (getStatus16SpHsStable() == 1 && getVideoMode() == rto->videoStandardInput) {
+                if (passiveStableCounter < 20) {
+                    passiveStableCounter++;
+                }
+            } else {
+                passiveStableCounter = 0;
+            }
+
+            if (passiveStableCounter >= 6) {
+                if (!rto->coastPositionIsSet) {
+                    updateCoastPosition(0);
+                    if (rto->coastPositionIsSet && videoStandardInputIsPalNtscSd()) {
+                        GBS::SP_DIS_SUB_COAST::write(0);
+                        GBS::SP_H_PROTECT::write(0);
+                    }
+                }
+
+                if (!rto->clampPositionIsSet) {
+                    updateClampPosition();
+                    if (rto->clampPositionIsSet && GBS::SP_NO_CLAMP_REG::read() == 1) {
+                        GBS::SP_NO_CLAMP_REG::write(0);
+                    }
+                }
+
+                // Retry occasionally until both are set.
+                passiveStableCounter = (rto->coastPositionIsSet && rto->clampPositionIsSet) ? 0 : 5;
+            }
+        }
+    } else {
+        passiveStableCounter = 0;
+    }
+
     // init frame sync + besthtotal routine
     if (useDebugPinMeasurements() && rto->autoBestHtotalEnabled && !FrameSync::ready() && rto->syncWatcherEnabled) {
         if (rto->continousStableCounter >= 10 && rto->coastPositionIsSet &&
@@ -9089,10 +9223,30 @@ void gbs_loop()
         setOutModeHdBypass(false);
     }
 
-    if (rto->syncWatcherEnabled == true && rto->sourceDisconnected == true && rto->boardHasPower) {
+    // sourceDisconnected path: run regardless of syncWatcherEnabled so that
+    // legacy (passive) mode can still detect and apply a preset at startup.
+    if (rto->sourceDisconnected == true && rto->boardHasPower) {
         if ((millis() - lastTimeSourceCheck) >= 500) {
             if (checkBoardPower()) {
-                inputAndSyncDetect(); // source is off or just started; keep looking for new input
+                uint8_t syncFound = inputAndSyncDetect(); // source is off or just started; keep looking for new input
+
+                // In passive mode (syncWatcher OFF), runSyncWatcher() won't execute
+                // the usual format-change path that calls applyPresets().
+                // If input is now active, do a one-shot preset apply here.
+                if (!rto->syncWatcherEnabled && syncFound != 0) {
+                    if (syncFound == 1 || syncFound == 2) {
+                        uint8_t detectedVideoMode = getVideoMode();
+                        if (detectedVideoMode == 0) {
+                            detectedVideoMode = inferFallbackVideoMode();
+                        }
+                        if (detectedVideoMode != 0) {
+                            applyPresets(detectedVideoMode);
+                        } else {
+                            // Keep probing until SP mode detect stabilizes.
+                            rto->sourceDisconnected = true;
+                        }
+                    }
+                }
             } else {
                 rto->boardHasPower = false;
                 rto->continousStableCounter = 0;
@@ -9320,7 +9474,9 @@ void handleType2Command(char argument)
             uint8_t videoMode = getVideoMode();
             if (videoMode == 0 && GBS::STATUS_SYNC_PROC_HSACT::read())
                 videoMode = rto->videoStandardInput; // last known good as fallback
-            //else videoMode stays 0 and we'll apply via some assumptions
+            if (videoMode == 0) {
+                videoMode = inferFallbackVideoMode();
+            }
 
             if (argument == 'f')
                 uopt->presetPreference = Output960P; // 1280x960
@@ -9339,6 +9495,10 @@ void handleType2Command(char argument)
             if (rto->videoStandardInput == 14) {
                 // vga upscale path: let synwatcher handle it
                 rto->videoStandardInput = 15;
+            } else if (videoMode == 0) {
+                // Avoid applyPresets(0): it can drive an unstable fallback and
+                // produce temporary garbage output on the first attempt.
+                SerialM.println(F("Resolution apply deferred: source mode not locked yet"));
             } else {
                 // normal path
                 applyPresets(videoMode);
@@ -10447,6 +10607,8 @@ void saveUserPrefs()
     f.write(uopt->shellSavedOversampleRatio + '0');     // #23
     f.write(uopt->shellSavedSyncWatcher + '0');         // #24
     f.write(uopt->shellSavedExtClockSync + '0');        // #25
+    f.write(uopt->shellSavedPreCoast);                  // #26 (raw byte)
+    f.write(uopt->shellSavedPostCoast);                 // #27 (raw byte)
     f.close();
 }
 
@@ -10463,6 +10625,68 @@ void gbs_set_adc_filter(uint8_t val)
 void gbs_framesync_reset_soft()
 {
     FrameSync::resetWithoutRecalculation();
+}
+
+uint16_t gbs_get_clamp_start()
+{
+    return GBS::SP_CS_CLP_ST::read();
+}
+
+uint16_t gbs_get_clamp_stop()
+{
+    return GBS::SP_CS_CLP_SP::read();
+}
+
+uint8_t gbs_get_clamp_disable_flag()
+{
+    return GBS::SP_NO_CLAMP_REG::read();
+}
+
+void gbs_set_clamp_window(uint16_t start, uint16_t stop)
+{
+    GBS::SP_CS_CLP_ST::write(start);
+    GBS::SP_CS_CLP_SP::write(stop);
+}
+
+void gbs_set_clamp_disable_flag(uint8_t val)
+{
+    GBS::SP_NO_CLAMP_REG::write(val);
+}
+
+uint16_t gbs_get_coast_start()
+{
+    return GBS::SP_H_CST_ST::read();
+}
+
+uint16_t gbs_get_coast_stop()
+{
+    return GBS::SP_H_CST_SP::read();
+}
+
+void gbs_set_coast_window(uint16_t start, uint16_t stop)
+{
+    GBS::SP_H_CST_ST::write(start);
+    GBS::SP_H_CST_SP::write(stop);
+}
+
+uint8_t gbs_get_pre_coast()
+{
+    return GBS::SP_PRE_COAST::read();
+}
+
+uint8_t gbs_get_post_coast()
+{
+    return GBS::SP_POST_COAST::read();
+}
+
+void gbs_set_pre_coast(uint8_t val)
+{
+    GBS::SP_PRE_COAST::write(val);
+}
+
+void gbs_set_post_coast(uint8_t val)
+{
+    GBS::SP_POST_COAST::write(val);
 }
 
 bool gbs_set_custom_ssid(const char *ssid)

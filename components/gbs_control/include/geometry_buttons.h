@@ -23,6 +23,11 @@ extern "C" {
  */
 void geometry_buttons_init(void);
 
+/**
+ * 現在のジオメトリボタン操作モード名を返す。
+ */
+const char *geometry_buttons_get_mode_name(void);
+
 #ifdef __cplusplus
 }
 #endif

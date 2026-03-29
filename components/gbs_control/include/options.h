@@ -42,6 +42,8 @@ struct userOptions
     uint8_t shellSavedOversampleRatio;
     uint8_t shellSavedSyncWatcher;
     uint8_t shellSavedExtClockSync;
+    uint8_t shellSavedPreCoast;
+    uint8_t shellSavedPostCoast;
 };
 
 

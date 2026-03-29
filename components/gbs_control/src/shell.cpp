@@ -30,6 +30,7 @@
 #include "slot.h"
 #include "FS.h"
 #include "shell_i2c_bridge.h"
+#include "geometry_buttons.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -59,12 +60,26 @@ extern bool gbs_set_custom_ssid(const char *ssid);
 extern uint8_t gbs_get_adc_filter_state();
 extern void gbs_set_adc_filter(uint8_t val);
 extern void gbs_framesync_reset_soft();
+extern uint16_t gbs_get_clamp_start();
+extern uint16_t gbs_get_clamp_stop();
+extern uint8_t gbs_get_clamp_disable_flag();
+extern void gbs_set_clamp_window(uint16_t start, uint16_t stop);
+extern void gbs_set_clamp_disable_flag(uint8_t val);
+extern uint16_t gbs_get_coast_start();
+extern uint16_t gbs_get_coast_stop();
+extern void gbs_set_coast_window(uint16_t start, uint16_t stop);
+extern uint8_t gbs_get_pre_coast();
+extern uint8_t gbs_get_post_coast();
+extern void gbs_set_pre_coast(uint8_t val);
+extern void gbs_set_post_coast(uint8_t val);
 extern const char *ap_ssid;
 extern float getSourceFieldRate(bool useSPBus);
 extern float getOutputFrameRate();
 extern uint32_t getPllRate();
 extern void setOverSampleRatio(uint8_t newRatio, bool prepareOnly);
 extern void optimizePhaseSP();
+extern void updateClampPosition();
+extern void updateCoastPosition(bool autoCoast);
 
 /* GBS I2C address (7-bit) */
 #define GBS_I2C_ADDR GBS_ADDR
@@ -255,10 +270,14 @@ static void print_help_set(void)
         "  set upscaling        Low-res upscaling\r\n"
         "  set deint <bob|ma>   Deinterlacer mode\r\n"
         "\r\n"
-        "Debug settings [temp] (not saved, lost on reboot):\r\n"
+        "Debug settings:\r\n"
         "  set adcfilter        ADC filter [saved: shell only]\r\n"
         "  set oversample       Oversampling (1x/2x/4x) [saved: shell only]\r\n"
         "  set syncwatcher      Sync watcher [saved: shell only]\r\n"
+        "  set clamp <auto|neutral|st sp>   Clamp window\r\n"
+        "  set coast <auto|st sp>           Coast window\r\n"
+        "  set precoast <0-255>             SP_PRE_COAST [saved]\r\n"
+        "  set postcoast <0-255>            SP_POST_COAST [saved]\r\n"
         "  set freeze           Freeze capture\r\n"
         "\r\n"
         "Picture [preset] (save via 'slot save <name>'):\r\n"
@@ -455,6 +474,18 @@ static void cmd_show_status(void)
          printf("  ExtClockRetune: %s  LegacySync: %s\r\n",
              (rto->extClockRetuneEnabled ? "ON" : "OFF"),
              (uopt->useLegacySyncCompat ? "ON" : "OFF"));
+         printf("  SyncWatcher: %s\r\n",
+             (rto->syncWatcherEnabled ? "ON" : "OFF"));
+         printf("  Clamp: ST=%u SP=%u %s\r\n",
+             (unsigned)gbs_get_clamp_start(),
+             (unsigned)gbs_get_clamp_stop(),
+             gbs_get_clamp_disable_flag() ? "(disabled)" : "(enabled)");
+         printf("  Coast: ST=%u SP=%u PRE=%u POST=%u\r\n",
+             (unsigned)gbs_get_coast_start(),
+             (unsigned)gbs_get_coast_stop(),
+             (unsigned)gbs_get_pre_coast(),
+             (unsigned)gbs_get_post_coast());
+         printf("  GeoButtons: mode=%s\r\n", geometry_buttons_get_mode_name());
     }
     printf("=========================\r\n\r\n");
 }
@@ -486,6 +517,8 @@ static void cmd_show_config(void)
     printf("  shellOversample   : %d\r\n", uopt->shellSavedOversampleRatio);
     printf("  shellSyncWatcher  : %d\r\n", uopt->shellSavedSyncWatcher);
     printf("  shellExtClkSync   : %d\r\n", uopt->shellSavedExtClockSync);
+    printf("  shellPreCoast     : %u\r\n", (unsigned)uopt->shellSavedPreCoast);
+    printf("  shellPostCoast    : %u\r\n", (unsigned)uopt->shellSavedPostCoast);
     printf("  tap6              : %d\r\n", uopt->wantTap6);
     printf("  disableExtClkGen  : %d\r\n", uopt->disableExternalClockGenerator);
     printf("  inputMode(build)  : %s\r\n", PINCFG_USE_ROTARY_ENCODER ? "r-encoder" : "d-pad");
@@ -534,15 +567,19 @@ static void cmd_set(int ntok, char *tok[])
         /* 19 */ "adcfilter",
         /* 20 */ "oversample",
         /* 21 */ "syncwatcher",
-        /* 22 */ "freeze",
-        /* 23 */ "brightness",
-        /* 24 */ "contrast",
-        /* 25 */ "gain",
-        /* 26 */ "color",
-        /* 27 */ "defaults",
-        /* 28 */ "wipe",
-        /* 29 */ "ota",
-        /* 30 */ "ssid",
+        /* 22 */ "clamp",
+        /* 23 */ "coast",
+        /* 24 */ "precoast",
+        /* 25 */ "postcoast",
+        /* 26 */ "freeze",
+        /* 27 */ "brightness",
+        /* 28 */ "contrast",
+        /* 29 */ "gain",
+        /* 30 */ "color",
+        /* 31 */ "defaults",
+        /* 32 */ "wipe",
+        /* 33 */ "ota",
+        /* 34 */ "ssid",
     };
     int ki = resolve_abbrev(tok[1], keys, ARRAY_SIZE(keys));
     if (ki == -2) { print_ambiguous(tok[1], keys, ARRAY_SIZE(keys)); return; }
@@ -597,13 +634,11 @@ static void cmd_set(int ntok, char *tok[])
                 rto->autoBestHtotalEnabled = false;
             }
             saveUserPrefs();
-            printf("[saved] Legacy sync compatibility: ON (syncwatcher/autobest/debug-measure/extclk-retune disabled)\r\n");
+            printf("[saved] Legacy sync compatibility: ON (passive mode: syncwatcher/autobest/extclk-retune/FTL disabled)\r\n");
         } else if (str_eq(tok[2], "off") || str_eq(tok[2], "0")) {
             uopt->useLegacySyncCompat = 0;
-            // Restore syncWatcher default so the next reboot also works correctly.
-            uopt->shellSavedSyncWatcher = 1;
             if (rto) {
-                rto->syncWatcherEnabled = true;
+                rto->syncWatcherEnabled = (uopt->shellSavedSyncWatcher != 0);
                 rto->autoBestHtotalEnabled = true;
                 gbs_framesync_reset_soft();
             }
@@ -686,16 +721,133 @@ static void cmd_set(int ntok, char *tok[])
     if (str_eq(key, "syncwatcher")) {
         if (!rto) { printf("runtime unavailable\r\n"); return; }
         if (uopt->useLegacySyncCompat) {
-            rto->syncWatcherEnabled = false;
-            uopt->shellSavedSyncWatcher = 0;
-            saveUserPrefs();
-            printf("[saved] Sync watcher: OFF (legacy sync compat lock)\r\n");
+            printf("Sync watcher is locked OFF in legacy sync compat mode\r\n");
             return;
         }
         rto->syncWatcherEnabled = !rto->syncWatcherEnabled;
         uopt->shellSavedSyncWatcher = rto->syncWatcherEnabled ? 1 : 0;
         saveUserPrefs();
         printf("[saved] Sync watcher: %s (shell)\r\n", rto->syncWatcherEnabled ? "ON" : "OFF");
+        return;
+    }
+    if (str_eq(key, "clamp")) {
+        if (ntok < 3) {
+            printf("Usage: set clamp <auto|neutral|start stop>\r\n");
+            printf("Current: ST=%u SP=%u %s\r\n",
+                (unsigned)gbs_get_clamp_start(),
+                (unsigned)gbs_get_clamp_stop(),
+                gbs_get_clamp_disable_flag() ? "(disabled)" : "(enabled)");
+            return;
+        }
+        if (str_eq(tok[2], "auto")) {
+            updateClampPosition();
+            if (rto && rto->clampPositionIsSet && gbs_get_clamp_disable_flag() == 1) {
+                gbs_set_clamp_disable_flag(0);
+            }
+            printf("[temp] Clamp auto: ST=%u SP=%u %s\r\n",
+                (unsigned)gbs_get_clamp_start(),
+                (unsigned)gbs_get_clamp_stop(),
+                gbs_get_clamp_disable_flag() ? "(disabled)" : "(enabled)");
+            return;
+        }
+        if (str_eq(tok[2], "neutral")) {
+            gbs_set_clamp_window(32, 48);
+            gbs_set_clamp_disable_flag(0);
+            if (rto) {
+                rto->clampPositionIsSet = true;
+            }
+            printf("[temp] Clamp neutral: ST=32 SP=48 (enabled)\r\n");
+            return;
+        }
+
+        if (ntok < 4) {
+            printf("Usage: set clamp <start> <stop>\r\n");
+            return;
+        }
+        uint32_t st = 0, sp = 0;
+        if (!parse_uint(tok[2], &st) || !parse_uint(tok[3], &sp)) {
+            printf("Invalid value\r\n");
+            return;
+        }
+        if (st > 0x7FF || sp > 0x7FF || st >= sp) {
+            printf("Range error (0..2047, start < stop)\r\n");
+            return;
+        }
+        gbs_set_clamp_window((uint16_t)st, (uint16_t)sp);
+        gbs_set_clamp_disable_flag(0);
+        if (rto) {
+            rto->clampPositionIsSet = true;
+        }
+        printf("[temp] Clamp: ST=%u SP=%u (enabled)\r\n", (unsigned)st, (unsigned)sp);
+        return;
+    }
+    if (str_eq(key, "coast")) {
+        if (ntok < 3) {
+            printf("Usage: set coast <auto|start stop>\r\n");
+            printf("Current: ST=%u SP=%u\r\n",
+                (unsigned)gbs_get_coast_start(),
+                (unsigned)gbs_get_coast_stop());
+            return;
+        }
+        if (str_eq(tok[2], "auto")) {
+            updateCoastPosition(false);
+            printf("[temp] Coast auto: ST=%u SP=%u\r\n",
+                (unsigned)gbs_get_coast_start(),
+                (unsigned)gbs_get_coast_stop());
+            return;
+        }
+        if (ntok < 4) {
+            printf("Usage: set coast <start> <stop>\r\n");
+            return;
+        }
+        uint32_t st = 0, sp = 0;
+        if (!parse_uint(tok[2], &st) || !parse_uint(tok[3], &sp)) {
+            printf("Invalid value\r\n");
+            return;
+        }
+        if (st > 0x7FF || sp > 0x7FF || st >= sp) {
+            printf("Range error (0..2047, start < stop)\r\n");
+            return;
+        }
+        gbs_set_coast_window((uint16_t)st, (uint16_t)sp);
+        if (rto) {
+            rto->coastPositionIsSet = true;
+        }
+        printf("[temp] Coast: ST=%u SP=%u\r\n", (unsigned)st, (unsigned)sp);
+        return;
+    }
+    if (str_eq(key, "precoast")) {
+        if (ntok < 3) {
+            printf("Usage: set precoast <0-255>\r\n");
+            printf("Current: PRE=%u\r\n", (unsigned)gbs_get_pre_coast());
+            return;
+        }
+        uint32_t v = 0;
+        if (!parse_uint(tok[2], &v) || v > 0xFF) {
+            printf("Range error (0..255)\r\n");
+            return;
+        }
+        gbs_set_pre_coast((uint8_t)v);
+        uopt->shellSavedPreCoast = (uint8_t)v;
+        saveUserPrefs();
+        printf("[saved] Pre-coast: %u\r\n", (unsigned)v);
+        return;
+    }
+    if (str_eq(key, "postcoast")) {
+        if (ntok < 3) {
+            printf("Usage: set postcoast <0-255>\r\n");
+            printf("Current: POST=%u\r\n", (unsigned)gbs_get_post_coast());
+            return;
+        }
+        uint32_t v = 0;
+        if (!parse_uint(tok[2], &v) || v > 0xFF) {
+            printf("Range error (0..255)\r\n");
+            return;
+        }
+        gbs_set_post_coast((uint8_t)v);
+        uopt->shellSavedPostCoast = (uint8_t)v;
+        saveUserPrefs();
+        printf("[saved] Post-coast: %u\r\n", (unsigned)v);
         return;
     }
     if (str_eq(key, "freeze"))       { send_uc('F', "[temp] Freeze capture toggle"); return; }
@@ -1191,7 +1343,7 @@ static const char *const s_set_keys[] = {
     "legacysync", "extclksync",
     "pal60", "linefilter", "stepresponse", "fullheight",
     "autogain", "matched", "upscaling", "deint",
-    "adcfilter", "oversample", "syncwatcher", "freeze",
+    "adcfilter", "oversample", "syncwatcher", "clamp", "coast", "precoast", "postcoast", "freeze",
     "brightness", "contrast", "gain", "color",
     "defaults", "ota", "ssid"
 };
@@ -1203,6 +1355,8 @@ static const char *const s_ssid_opts[] = { "reset" };
 static const char *const s_debugpin_opts[] = { "on", "off" };
 static const char *const s_legacysync_opts[] = { "on", "off" };
 static const char *const s_extclksync_opts[] = { "on", "off" };
+static const char *const s_clamp_opts[] = { "auto", "neutral" };
+static const char *const s_coast_opts[] = { "auto" };
 static const char *const s_pm_opts[] = { "+", "-" };
 static const char *const s_dir_opts[] = { "l", "r", "u", "d" };
 static const char *const s_show_opts[] = { "status", "config" };
@@ -1281,6 +1435,14 @@ static bool get_completion_ctx(const char *line, int len,
             }
             if (str_eq(k, "extclksync")) {
                 *opts = s_extclksync_opts; *cnt = ARRAY_SIZE(s_extclksync_opts);
+                *prefix = sub_pfx; return true;
+            }
+            if (str_eq(k, "clamp")) {
+                *opts = s_clamp_opts; *cnt = ARRAY_SIZE(s_clamp_opts);
+                *prefix = sub_pfx; return true;
+            }
+            if (str_eq(k, "coast")) {
+                *opts = s_coast_opts; *cnt = ARRAY_SIZE(s_coast_opts);
                 *prefix = sub_pfx; return true;
             }
         }

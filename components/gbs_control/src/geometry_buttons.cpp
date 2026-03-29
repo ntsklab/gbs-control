@@ -25,8 +25,17 @@
  *     左 (LEFT)  → 'B'  (HBorder-)
  *     右 (RIGHT) → 'A'  (HBorder+)
  *
+ *   [PreCoast モード]
+ *     上/右       → ']'  (PreCoast +1)
+ *     下/左       → '['  (PreCoast -1)
+ *
+ *   [PostCoast モード]
+ *     上/右       → '}'  (PostCoast +1)
+ *     下/左       → '{'  (PostCoast -1)
+ *
  * モード切替:
- *   専用モードボタン短押しで Vpos/Hpos -> Vsize/Hsize -> Border を順送り
+ *   専用モードボタン短押しで
+ *   Vpos/Hpos -> Vsize/Hsize -> Border -> PreCoast -> PostCoast を順送り
  *
  * ボタン仕様:
  *   - アクティブLOW（内部プルアップ、押下時 GND）
@@ -56,6 +65,7 @@ static const char *TAG = "geo_btn";
 #define GEO_DEBOUNCE_MS         16   // デバウンス時間 (ms)
 #define GEO_REPEAT_INITIAL_MS  400   // 長押し初回リピートまでの時間 (ms)
 #define GEO_REPEAT_INTERVAL_MS 150   // 長押しリピート間隔 (ms)
+#define GEO_LED_BLINK_MS       250   // 点滅モードLED周期 (ms)
 #define GEO_TASK_STACK_SIZE   2048
 #define GEO_TASK_PRIORITY        2
 
@@ -88,6 +98,8 @@ typedef enum {
     GEO_MODE_POSITION = 0,  // Vpos/Hpos
     GEO_MODE_SIZE,         // Vsize/Hsize
     GEO_MODE_BORDER,       // Border
+    GEO_MODE_PRECOAST,     // PreCoast
+    GEO_MODE_POSTCOAST,    // PostCoast
     GEO_MODE_COUNT
 } geo_control_mode_t;
 
@@ -120,6 +132,20 @@ static const char geo_cmd_map_border[GEO_DIR_COUNT] = {
     [GEO_DIR_RIGHT] = 'A',   // HBorder+ — 左右表示幅縮小
 };
 
+static const char geo_cmd_map_precoast[GEO_DIR_COUNT] = {
+    [GEO_DIR_UP]    = ']',   // PreCoast+
+    [GEO_DIR_DOWN]  = '[',   // PreCoast-
+    [GEO_DIR_LEFT]  = '[',   // PreCoast-
+    [GEO_DIR_RIGHT] = ']',   // PreCoast+
+};
+
+static const char geo_cmd_map_postcoast[GEO_DIR_COUNT] = {
+    [GEO_DIR_UP]    = '}',   // PostCoast+
+    [GEO_DIR_DOWN]  = '{',   // PostCoast-
+    [GEO_DIR_LEFT]  = '{',   // PostCoast-
+    [GEO_DIR_RIGHT] = '}',   // PostCoast+
+};
+
 static const char *geo_dir_names[GEO_DIR_COUNT] = {
     "UP", "DOWN", "LEFT", "RIGHT"
 };
@@ -130,8 +156,15 @@ static const char *geo_mode_name(geo_control_mode_t mode)
         case GEO_MODE_POSITION: return "Vpos/Hpos";
         case GEO_MODE_SIZE:     return "Vsize/Hsize";
         case GEO_MODE_BORDER:   return "Border";
+        case GEO_MODE_PRECOAST: return "PreCoast";
+        case GEO_MODE_POSTCOAST:return "PostCoast";
         default:                return "Unknown";
     }
+}
+
+const char *geometry_buttons_get_mode_name(void)
+{
+    return geo_mode_name(geo_mode);
 }
 
 static char geo_get_cmd(geo_dir_t dir)
@@ -141,6 +174,10 @@ static char geo_get_cmd(geo_dir_t dir)
             return geo_cmd_map_size[dir];
         case GEO_MODE_BORDER:
             return geo_cmd_map_border[dir];
+        case GEO_MODE_PRECOAST:
+            return geo_cmd_map_precoast[dir];
+        case GEO_MODE_POSTCOAST:
+            return geo_cmd_map_postcoast[dir];
         case GEO_MODE_POSITION:
         default:
             return geo_cmd_map_pos[dir];
@@ -152,10 +189,11 @@ static bool geo_mode_uses_user_command(geo_control_mode_t mode)
     return mode == GEO_MODE_BORDER;
 }
 
-static void geo_update_mode_leds(void)
+static void geo_update_mode_leds(uint32_t now)
 {
     int led_a = 0;
     int led_b = 0;
+    bool blink_on = ((now / GEO_LED_BLINK_MS) % 2) == 0;
 
     switch (geo_mode) {
         case GEO_MODE_POSITION: // Mode 1: 1,0
@@ -170,6 +208,14 @@ static void geo_update_mode_leds(void)
             led_a = 1;
             led_b = 1;
             break;
+        case GEO_MODE_PRECOAST: // Mode 4: blink A
+            led_a = blink_on ? 1 : 0;
+            led_b = 0;
+            break;
+        case GEO_MODE_POSTCOAST: // Mode 5: blink B
+            led_a = 0;
+            led_b = blink_on ? 1 : 0;
+            break;
         default:
             break;
     }
@@ -181,7 +227,7 @@ static void geo_update_mode_leds(void)
 static void geo_toggle_mode(void)
 {
     geo_mode = (geo_control_mode_t)((geo_mode + 1) % GEO_MODE_COUNT);
-    geo_update_mode_leds();
+    geo_update_mode_leds((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
     ESP_LOGI(TAG, "操作モード切替: %s", geo_mode_name(geo_mode));
 }
 
@@ -269,6 +315,8 @@ static void geo_button_task(void *pvParameters)
                 geo_toggle_mode();
         }
 
+        geo_update_mode_leds(now);
+
         for (int i = 0; i < GEO_DIR_COUNT; i++) {
             geo_button_t *btn = &buttons[i];
 
@@ -344,7 +392,7 @@ void geometry_buttons_init(void)
     if (led_err != ESP_OK) {
         ESP_LOGE(TAG, "モードLED GPIO設定失敗: %s", esp_err_to_name(led_err));
     } else {
-        geo_update_mode_leds();
+        geo_update_mode_leds((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
     }
 
     // ポーリングタスク作成
